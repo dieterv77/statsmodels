@@ -178,8 +178,10 @@ class RLM(base.LikelihoodModel):
         history['scale'].append(tmp_results.scale)
         if conv == 'dev':
             history['deviance'].append(self.deviance(tmp_results))
+        elif conv == 'sresid':
+            history['sresid'].append(tmp_results.resid/tmp_result.scale)
         elif conv == 'resid':
-            history['sresid'].append(tmp_results.resid)
+            history['resid'].append(tmp_results.resid)
         elif conv == 'weights':
             history['weights'].append(tmp_results.model.weights)
         return history
@@ -212,6 +214,7 @@ class RLM(base.LikelihoodModel):
             Indicates the convergence criteria.
             Available options are "coefs" (the coefficients), "weights" (the
             weights in the iteration), "sresid" (the standardized residuals),
+            "resid" (the residuals),
             and "dev" (the un-normalized log-likelihood for the M
             estimator).  The default is "dev".
         cov : string, optional
@@ -251,7 +254,7 @@ class RLM(base.LikelihoodModel):
         else:
             self.cov = cov.upper()
         conv = conv.lower()
-        if not conv in ["weights","coefs","dev","sresid"]:
+        if not conv in ["weights","coefs","dev","sresid","resid"]:
             raise ValueError("Convergence argument %s not understood" \
                 % conv)
         self.scale_est = scale_est
@@ -268,6 +271,9 @@ class RLM(base.LikelihoodModel):
         elif conv == 'sresid':
             history.update(dict(sresid = [np.inf]))
             criterion = history['sresid']
+        elif conv == 'resid':
+            history.update(dict(resid = [np.inf]))
+            criterion = history['resid']
         elif conv == 'weights':
             history.update(dict(weights = [np.inf]))
             criterion = history['weights']
