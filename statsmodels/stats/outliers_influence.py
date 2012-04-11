@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
+"""Influence and Outlier Measures
 
 Created on Sun Jan 29 11:16:09 2012
 
@@ -25,7 +25,7 @@ def reset_ramsey(res, degree=5):
 
     Notes
     -----
-    The test fits an auxilliary OLS regression where the design matrix, exog,
+    The test fits an auxiliary OLS regression where the design matrix, exog,
     is augmented by powers 2 to degree of the fitted values. Then it performs
     an F-test whether these additional terms are significant.
 
@@ -81,9 +81,7 @@ def variance_inflation_factor(exog, exog_idx):
 
     Notes
     -----
-    This function does not save the auxilliary regression. If we are
-    interested also in other diagnostic measures, then using xxx will avoid
-    repeated calculations
+    This function does not save the auxiliary regression.
 
     See Also
     --------
@@ -103,13 +101,41 @@ def variance_inflation_factor(exog, exog_idx):
     return vif
 
 
-class Influence(object):
+class OLSInfluence(object):
     '''class to calculate outlier and influence measures for OLS result
+
+    Parameters
+    ----------
+    results : Regression Results instance
+        currently assumes the results are from an OLS regression
+
+    Notes
+    -----
+    One part of the results can be calculated without any auxiliary regression
+    (some of which have the `_internal` postfix in the name. Other statistics
+    require leave-one-observation-out (LOOO) auxiliary regression, and will be
+    slower (mainly results with `_external` postfix in the name).
+    The auxiliary LOOO regression only the required results are stored.
+
+    Using the LOO measures is currently only recommended if the data set
+    is not too large. One possible approach for LOOO measures would be to
+    identify possible problem observations with the _internal measures, and
+    then run the leave-one-observation-out only with observations that are
+    possible outliers. (However, this is not yet available in an automized way.)
+
+    This should be extended to general least squares.
+
+    The leave-one-variable-out (LOVO) auxiliary regression are currently not
+    used.
+
     '''
 
     def __init__(self, results):
         #check which model is allowed
-        self.results = results
+        try:
+            self.results = results._results # don't use wrapped results
+        except: # we got unwrapped results
+            self.results = results
         self.nobs, self.k_vars = results.model.exog.shape
         self.endog = results.model.endog
         self.exog = results.model.exog
@@ -122,31 +148,37 @@ class Influence(object):
 
     @cache_readonly
     def hat_matrix_diag(self):
-        '''OLS only currently
-        #temporary, should go to model class
+        '''(cached attribute) diagonal of the hat_matrix for OLS
+
+        Notes
+        -----
+        temporarily calculated here, this should go to model class
         '''
         return (self.exog * self.results.model.pinv_wexog.T).sum(1)
 
     @cache_readonly
     def resid_press(self):
-        '''
+        '''(cached attribute) PRESS residuals
         '''
         hii = self.hat_matrix_diag
         return self.results.resid / (1 - hii)
 
     @cache_readonly
     def influence(self):
-        '''
-        matches the influence measure that gretl repors
+        '''(cached attribute) influence measure
+
+        matches the influence measure that gretl reports
         u * h / (1 - h)
+        where u are the residuals and h is the diagonal of the hat_matrix
         '''
         hii = self.hat_matrix_diag
         return self.results.resid * hii / (1 - hii)
 
     @cache_readonly
     def hat_diag_factor(self):
-        '''
-        this might be useful for internal reus
+        '''(cached attribute) factor of diagonal of hat_matrix used in influence
+
+        this might be useful for internal reuse
         h / (1 - h)
         '''
         hii = self.hat_matrix_diag
@@ -154,14 +186,15 @@ class Influence(object):
 
     @cache_readonly
     def ess_press(self):
-        '''
+        '''(cached attribute) error sum of squares of PRESS residuals
         '''
         return np.dot(self.resid_press, self.resid_press)
 
     @cache_readonly
     def resid_studentized_internal(self):
-        '''this uses sigma from original estimate
+        '''(cached attribute) studentized residuals using variance from OLS
 
+        this uses sigma from original estimate
         does not require leave one out loop
         '''
         return self.get_resid_studentized_external(sigma=None)
@@ -169,17 +202,39 @@ class Influence(object):
 
     @cache_readonly
     def resid_studentized_external(self):
-        '''this uses sigma from leave-one-out estimates
+        '''(cached attribute) studentized residuals using LOOO variance
+
+        this uses sigma from leave-one-out estimates
 
         requires leave one out loop for observations
         '''
-        #call self.summary to get all loo obs attributes
-        self.get_all_obs()
         sigma_looo = np.sqrt(self.sigma2_not_obsi)
         return self.get_resid_studentized_external(sigma=sigma_looo)
 
     def get_resid_studentized_external(self, sigma=None):
-        '''method
+        '''calculate studentized residuals
+
+        Parameters
+        ----------
+        sigma : None or float
+            estimate of the standard deviation of the residuals. If None, then
+            the estimate from the regression results is used.
+
+        Returns
+        -------
+        stzd_resid : ndarray
+            studentized residuals
+
+        Notes
+        -----
+        studentized residuals are defined as ::
+
+           resid / sigma / np.sqrt(1 - hii)
+
+        where resid are the residuals from the regression, sigma is an
+        estimate of the standard deviation of the residuals, and hii is the
+        diagonal of the hat_matrix.
+
         '''
         hii = self.hat_matrix_diag
         if sigma is None:
@@ -191,6 +246,12 @@ class Influence(object):
 
     @cache_readonly
     def dffits_internal(self):
+        '''(cached attribute) dffits measure for influence of an observation
+
+        based on resid_studentized_internal
+        uses original results, no nobs loop
+
+        '''
         #TODO: do I want to use different sigma estimate in
         #      resid_studentized_external
         # -> move definition of sigma_error to the __init__
@@ -201,6 +262,25 @@ class Influence(object):
 
     @cache_readonly
     def dffits(self):
+        '''(cached attribute) dffits measure for influence of an observation
+
+        based on resid_studentized_external,
+        uses results from leave-one-observation-out loop
+
+        It is recommended that observations with dffits large than a
+        threshold of 2 sqrt{k / n} where k is the number of parameters, should
+        be investigated.
+
+        Returns
+        -------
+        dffits: float
+        dffits_threshold : float
+
+        References
+        ----------
+        `Wikipedia <http://en.wikipedia.org/wiki/DFFITS>`_
+
+        '''
         #TODO: do I want to use different sigma estimate in
         #      resid_studentized_external
         # -> move definition of sigma_error to the __init__
@@ -209,7 +289,50 @@ class Influence(object):
         dffits_threshold = 2 * np.sqrt(self.k_vars * 1. / self.nobs)
         return dffits_, dffits_threshold
 
+    @cache_readonly
+    def dfbetas(self):
+        '''(cached attribute) dfbetas
+
+        uses results from leave-one-observation-out loop
+        '''
+        dfbetas = self.results.params - self.params_not_obsi#[None,:]
+        dfbetas /= np.sqrt(self.sigma2_not_obsi[:,None])
+        dfbetas /=  np.sqrt(np.diag(self.results.normalized_cov_params))
+        return dfbetas
+
+    @cache_readonly
+    def sigma2_not_obsi(self):
+        '''(cached attribute) error variance for all LOOO regressions
+
+        This is 'mse_resid' from each auxiliary regression.
+
+        uses results from leave-one-observation-out loop
+        '''
+        return np.asarray(self._res_looo['mse_resid'])
+
+    @cache_readonly
+    def params_not_obsi(self):
+        '''(cached attribute) parameter estimates for all LOOO regressions
+
+        uses results from leave-one-observation-out loop
+        '''
+        return np.asarray(self._res_looo['params'])
+
+    @cache_readonly
+    def det_cov_params_not_obsi(self):
+        '''(cached attribute) determinant of cov_params of all LOOO regressions
+
+        uses results from leave-one-observation-out loop
+        '''
+        return np.asarray(self._res_looo['det_cov_params'])
+
+    @cache_readonly
     def cooks_distance(self):
+        '''(cached attribute) Cooks distance
+
+        uses original results, no nobs loop
+
+        '''
         hii = self.hat_matrix_diag
         #Eubank p.93, 94
         cooks_d2 = self.resid_studentized_internal**2 / self.k_vars
@@ -223,25 +346,69 @@ class Influence(object):
         return cooks_d2, pvals
 
     @cache_readonly
+    def cov_ratio(self):
+        '''(cached attribute) covariance ratio between LOOO and original
+
+        This uses determinant of the estimate of the parameter covariance
+        from leave-one-out estimates.
+        requires leave one out loop for observations
+
+        '''
+        #don't use inplace division / because then we change original
+        cov_ratio = (self.det_cov_params_not_obsi
+                            / np.linalg.det(self.results.cov_params()))
+        return cov_ratio
+
+    @cache_readonly
     def resid_var(self):
+        '''(cached attribute) estimate of variance of the residuals
+
+        ::
+
+           sigma2 = sigma2_OLS * (1 - hii)
+
+        where hii is the diagonal of the hat matrix
+
+        '''
         #TODO:check if correct outside of ols
         return self.results.mse_resid * (1 - self.hat_matrix_diag)
 
     @cache_readonly
     def resid_std(self):
+        '''(cached attribute) estimate of standard deviation of the residuals
+
+        See Also
+        --------
+        resid_var
+
+        '''
         return np.sqrt(self.resid_var)
 
 
-    def ols_xnoti(self, drop_idx, endog_idx='endog', store=True):
-        '''
+    def _ols_xnoti(self, drop_idx, endog_idx='endog', store=True):
+        '''regression results from LOVO auxiliary regression with cache
 
-        there are too many combinations to store them all, except for small
-        problems
+
+        The result instances are stored, which could use a large amount of
+        memory if the datasets are large. There are too many combinations to
+        store them all, except for small problems.
+
+        Parameters
+        ----------
+        drop_idx : int
+            index of exog that is dropped from the regression
+        endog_idx : 'endog' or int
+            If 'endog', then the endogenous variable of the result instance
+            is regressed on the exogenous variables, excluding the one at
+            drop_idx. If endog_idx is an integer, then the exog with that
+            index is regressed with OLS on all other exogenous variables.
+            (The latter is the auxiliary regression for the variance inflation
+            factor.)
 
         this needs more thought, memory versus speed
-
-        reverse the structure, access store, if fail calculate ?
+        not yet used in any other parts, not sufficiently tested
         '''
+        #reverse the structure, access store, if fail calculate ?
         #this creates keys in store even if store = false ! bug
         if endog_idx == 'endog':
             stored = self.aux_regression_endog
@@ -269,11 +436,18 @@ class Influence(object):
 
         return res
 
-    def get_drop_var(self, attributes):
+    def _get_drop_vari(self, attributes):
         '''regress endog on exog without one of the variables
 
-        this uses a k_vars loop
+        This uses a k_vars loop, only attributes of the OLS instance are stored.
 
+        Parameters
+        ----------
+        attributes : list of strings
+           These are the names of the attributes of the auxiliary OLS results
+           instance that are stored and returned.
+
+        not yet used
         '''
         from statsmodels.sandbox.tools.cross_val import LeaveOneOut
 
@@ -285,55 +459,109 @@ class Influence(object):
         for inidx, outidx in cv_iter:
             for att in attributes:
                 res_i = self.model_class(endog, exog[:,inidx]).fit()
-            res_loo[att].append(getattr(res_i, att))
+                res_loo[att].append(getattr(res_i, att))
 
         return res_loo
 
-    def get_drop_obs(self, attributes):
-        '''regress endog on exog dropping one observation at a time
+    @cache_readonly
+    def _res_looo(self):
+        '''collect required results from the LOOO loop
 
-        this uses a nobs loop
+        all results will be attached.
+        currently only 'params', 'mse_resid', 'det_cov_params' are stored
+
+        regresses endog on exog dropping one observation at a time
+
+        this uses a nobs loop, only attributes of the OLS instance are stored.
         '''
         from statsmodels.sandbox.tools.cross_val import LeaveOneOut
+        get_det_cov_params = lambda res: np.linalg.det(res.cov_params())
 
-        endog = self.results.model.endog
+        endog = self.endog
         exog = self.exog
 
+        params = np.zeros_like(exog)
+        mse_resid = np.zeros_like(endog)
+        det_cov_params = np.zeros_like(endog)
+
         cv_iter = LeaveOneOut(self.nobs)
-        res_loo = defaultdict(list)
         for inidx, outidx in cv_iter:
-            for att in attributes:
-                res_i = self.model_class(endog[inidx], exog[inidx,:]).fit()
-                if isinstance(att, tuple): #hasattr(att, '__call__'): #callable:
-                    res_loo[att[0]].append(att[1](res_i))
-                else:
-                    res_loo[att].append(getattr(res_i, att))
+            res_i = self.model_class(endog[inidx], exog[inidx]).fit()
+            params[outidx] = res_i.params
+            mse_resid[outidx] = res_i.mse_resid
+            det_cov_params[outidx] = get_det_cov_params(res_i)
 
-        return res_loo
+        return dict(params=params, mse_resid=mse_resid,
+                       det_cov_params=det_cov_params)
 
-    def get_all_obs(self):
-        #this might not be the most efficient
-        get_det_cov_params = lambda res: np.linalg.det(res.cov_params())
-        attributes = ['params', 'mse_resid', ('det_cov_params', get_det_cov_params)]
-        res = self.get_drop_obs(attributes)
+    def summary_frame(self):
+        """
+        Creates a DataFrame with all available influence results.
 
-        self.sigma2_not_obsi = np.asarray(res['mse_resid'])
-        self.params_not_obsi = np.asarray(res['params'])
-        self.det_cov_params_not_obsi = np.asarray(res['det_cov_params'])
+        Returns
+        -------
+        frame : DataFrame
+            A DataFrame with all results.
 
-        #this is not stored in linear model
-        #self.xpx = np.dot(self.exog.T, self.exog)
+        Notes
+        -----
+        The resultant DataFrame contains six variables in addition to the
+        DFBETAS. These are:
 
-        #don't use inplace division / because then we change original
-        self.cov_ratio = (self.det_cov_params_not_obsi
-                            / np.linalg.det(self.results.cov_params()))
+        * cooks_d : Cook's Distance defined in `Influence.cooks_distance`
+        * standard_resid : Standardized residuals defined in
+          `Influence.resid_studentized_internal`
+        * hat_diag : The diagonal of the projection, or hat, matrix defined in
+          `Influence.hat_matrix_diag`
+        * dffits_internal : DFFITS statistics using internally Studentized
+          residuals defined in `Influence.dffits_internal`
+        * dffits : DFFITS statistics using externally Studentized residuals
+          defined in `Influence.dffits`
+        * student_resid : Externally Studentized residuals defined in
+          `Influence.resid_studentized_external`
+        """
+        from pandas import DataFrame
 
-        dfbetas = self.results.params - self.params_not_obsi#[None,:]
-        dfbetas /= np.sqrt(self.sigma2_not_obsi[:,None])
-        dfbetas /=  np.sqrt(np.diag(self.results.normalized_cov_params))
-        self.dfbetas = dfbetas
+        # row and column labels
+        data = self.results.model._data
+        row_labels = data.row_labels
+        beta_labels = ['dfb_' + i for i in data.xnames]
 
-    def summary_obs(self):
+        # grab the results
+        summary_data = DataFrame(dict(
+                            cooks_d = self.cooks_distance[0],
+                            standard_resid = self.resid_studentized_internal,
+                            hat_diag = self.hat_matrix_diag,
+                            dffits_internal = self.dffits_internal[0],
+                            student_resid = self.resid_studentized_external,
+                            dffits = self.dffits[0],
+                                        ),
+                            index = row_labels)
+        #NOTE: if we don't give columns, order of above will be arbitrary
+        dfbeta = DataFrame(self.dfbetas, columns=beta_labels,
+                            index=row_labels)
+
+        return dfbeta.join(summary_data)
+
+    def summary_table(self, float_fmt="%6.3f"):
+        '''create a summary table with all influence and outlier measures
+
+        This does currently not distinguish between statistics that can be
+        calculated from the original regression results and for which a
+        leave-one-observation-out loop is needed
+
+        Returns
+        -------
+        res : SimpleTable instance
+           SimpleTable instance with the results, can be printed
+
+        Notes
+        -----
+        This also attaches table_data to the instance.
+
+
+
+        '''
         #print self.dfbetas
 
 #        table_raw = [ np.arange(self.nobs),
@@ -350,7 +578,7 @@ class Influence(object):
         table_raw = [ ('obs', np.arange(self.nobs)),
                       ('endog', self.endog),
                       ('fitted\nvalue', self.results.fittedvalues),
-                      ("Cook's\nd", self.cooks_distance()[0]),
+                      ("Cook's\nd", self.cooks_distance[0]),
                       ("student.\nresidual", self.resid_studentized_internal),
                       ('hat diag', self.hat_matrix_diag),
                       ('dffits \ninternal', self.dffits_internal[0]),
@@ -359,22 +587,37 @@ class Influence(object):
                       ('dfbeta\nslope', self.dfbetas[:,1]) #skip needs to partially unravel
                       ]
         colnames, data = zip(*table_raw) #unzip
-        self.table_data = data
         data = np.column_stack(data)
-        data = np.round(data,4)
-        self.table = data
+        self.table_data = data
         from statsmodels.iolib.table import SimpleTable, default_html_fmt
         from statsmodels.iolib.tableformatting import fmt_base
         from copy import deepcopy
         fmt = deepcopy(fmt_base)
         fmt_html = deepcopy(default_html_fmt)
-        fmt['data_fmts'] = ["%4d"] + ["%6.3f"] * (data.shape[1] - 1)
+        fmt['data_fmts'] = ["%4d"] + [float_fmt] * (data.shape[1] - 1)
         #fmt_html['data_fmts'] = fmt['data_fmts']
         return SimpleTable(data, headers=colnames, txt_fmt=fmt,
                            html_fmt=fmt_html)
 
 
-def summary_obs(res, alpha=0.05):
+def summary_table(res, alpha=0.05):
+    '''generate summary table of outlier and influence similar to SAS
+
+    Parameters
+    ----------
+    alpha : float
+       significance level for confidence interval
+
+    Returns
+    -------
+    st : SimpleTable instance
+       table with results that can be printed
+    data : ndarray
+       calculated measures and statistics for the table
+    ss2 : list of strings
+       column_names for table (Note: rows of table are observations)
+
+    '''
 
     from scipy import stats
     from statsmodels.sandbox.regression.predstd import wls_prediction_std
@@ -410,7 +653,7 @@ def summary_obs(res, alpha=0.05):
                                   res.resid,
                                   resid_se,
                                   infl.resid_studentized_internal,
-                                  infl.cooks_distance()[0]
+                                  infl.cooks_distance[0]
                                   ])
 
 
@@ -420,8 +663,6 @@ def summary_obs(res, alpha=0.05):
     colnames = ss2
     #self.table_data = data
     #data = np.column_stack(data)
-    data = np.round(data,4)
-    #self.table = data
     from statsmodels.iolib.table import SimpleTable, default_html_fmt
     from statsmodels.iolib.tableformatting import fmt_base
     from copy import deepcopy
@@ -532,7 +773,8 @@ if __name__ == '__main__':
     infl = Influence(res_ols)
     print infl.resid_studentized_external
     print infl.resid_studentized_internal
-    infl.summary_obs()
+    print infl.summary_table()
+    print summary_table(res, alpha=0.05)[0]
 
 '''
 >>> res.resid

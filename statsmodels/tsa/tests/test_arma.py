@@ -150,8 +150,8 @@ class Test_Y_ARMA11_NoConst(CheckArmaResults, CheckForecast):
         cls.res2 = results_arma.Y_arma11()
 
     def test_pickle(self):
-        import StringIO
-        fh = StringIO.StringIO()
+        from statsmodels.compatnp.py3k import BytesIO
+        fh = BytesIO()
         #test wrapped results load save pickle
         self.res1.save(fh)
         fh.seek(0,0)
@@ -243,6 +243,7 @@ class Test_Y_ARMA41_Const(CheckArmaResults, CheckForecast):
         cls.decimal_cov_params = DECIMAL_3
         cls.decimal_fittedvalues = DECIMAL_3
         cls.decimal_resid = DECIMAL_3
+        cls.decimal_params = DECIMAL_3
         if fast_kalman:
             cls.decimal_cov_params -= 2
             cls.decimal_bse -= 1

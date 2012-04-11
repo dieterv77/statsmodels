@@ -1,6 +1,3 @@
-"""
-This is the VAR class refactored from pymaclab.
-"""
 from __future__ import division
 import numpy as np
 from numpy import (dot, identity, atleast_2d, atleast_1d, zeros)
@@ -230,8 +227,10 @@ class AR(tsbase.TimeSeriesModel):
 
         Vpinv = np.zeros((p,p), dtype=params.dtype)
         for i in range(1,p1):
-            Vpinv[i-1,i-1:] = np.correlate(params0, params0[:i])[:-1]
-            Vpinv[i-1,i-1:] -= np.correlate(params0[-i:], params0)[:-1]
+            Vpinv[i-1,i-1:] = np.correlate(params0, params0[:i],
+                                           old_behavior=False)[:-1]
+            Vpinv[i-1,i-1:] -= np.correlate(params0[-i:], params0,
+                                            old_behavior=False)[:-1]
 
         Vpinv = Vpinv + Vpinv.T - np.diag(Vpinv.diagonal())
         return Vpinv

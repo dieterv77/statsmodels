@@ -116,7 +116,8 @@ class GLS(base.LikelihoodModel):
     data.
 
     >>> gls_model = sm.GLS(data.endog, data.exog, sigma=sigma)
-    >>> gls_results = gls_model.results
+    >>> gls_results = gls_model.fit()
+    >>> print gls_results.summary()
 
     """
 
@@ -241,7 +242,11 @@ Should be of length %s, if sigma is a 1d array" % nobs)
             beta = np.linalg.solve(R,np.dot(Q.T,endog))
 
             # no upper triangular solve routine in numpy/scipy?
-        lfit = RegressionResults(self, beta,
+        if isinstance(self, OLS):
+            lfit = OLSResults(self, beta,
+                       normalized_cov_params=self.normalized_cov_params)
+        else:
+            lfit = RegressionResults(self, beta,
                        normalized_cov_params=self.normalized_cov_params)
         return RegressionResultsWrapper(lfit)
 
@@ -478,7 +483,6 @@ class OLS(WLS):
     >>>
     >>> model = sm.OLS(Y,X)
     >>> results = model.fit()
-    >>> # or results = model.results
     >>> results.params
     array([ 0.25      ,  2.14285714])
     >>> results.tvales
@@ -1503,6 +1507,21 @@ strong multicollinearity or other numerical problems.''' % condno
             print('not available yet')
         elif returns == 'html':
             print('not available yet')
+
+class OLSResults(RegressionResults):
+
+    def get_influence(self):
+        '''get an instance of Influence with influence and outlier measures
+
+        Returns
+        -------
+        infl : Influence instance
+            the instance has methods to calculate the main influence and
+            outlier measures for the OLS regression
+
+        '''
+        from statsmodels.stats.outliers_influence import OLSInfluence
+        return OLSInfluence(self)
 
 class RegressionResultsWrapper(wrap.ResultsWrapper):
 

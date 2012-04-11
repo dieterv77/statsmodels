@@ -12,12 +12,19 @@ import statsmodels.api as sm
 
 from numpy.testing import assert_, assert_almost_equal, assert_equal
 
+from nose import SkipTest
+import platform
+iswin = platform.system() == 'Windows'
+npversionless15 = np.__version__ < '1.5'
+winoldnp = iswin & npversionless15
+
+
 
 def check_pickle(obj):
-    import StringIO
-    fh = StringIO.StringIO()
+    from statsmodels.compatnp.py3k import BytesIO
+    fh = BytesIO()
     pickle.dump(obj, fh)
-    plen = fh.pos
+    plen = fh.tell()
     fh.seek(0,0)
     res = pickle.load(fh)
     fh.close()
@@ -41,6 +48,8 @@ class RemoveDataPickle(object):
 
 
     def test_remove_data_pickle(self):
+        if winoldnp:
+            raise SkipTest
         results = self.results
         xf = self.xf
 
@@ -77,7 +86,9 @@ class RemoveDataPickle(object):
 
         from statsmodels.iolib.smpickle import save_pickle, load_pickle
 
-        fh = StringIO.StringIO()
+        from statsmodels.compatnp.py3k import BytesIO
+
+        fh = BytesIO()  #use cPickle with binary content
 
         #test unwrapped results load save pickle
         self.results._results.save(fh)
@@ -93,7 +104,7 @@ class RemoveDataPickle(object):
         #res_unpickled = load_pickle(fh)
         res_unpickled = self.results.__class__.load(fh)
         fh.close()
-        print type(res_unpickled)
+        #print type(res_unpickled)
         assert_(type(res_unpickled) is type(self.results))
 
         before = sorted(self.results.__dict__.keys())
@@ -141,7 +152,8 @@ class TestRemoveDataPicklePoisson(RemoveDataPickle):
         model = sm.Poisson(y_count, x)#, exposure=np.ones(nobs), offset=np.zeros(nobs)) #bug with default
         #use start_params to converge faster
         start_params = np.array([ 0.75334818,  0.99425553,  1.00494724,  1.00247112])
-        self.results = model.fit(start_params=start_params, method='bfgs')
+        self.results = model.fit(start_params=start_params, method='bfgs',
+                                 disp=0)
 
         #TODO: temporary, fixed in master
         self.predict_kwds = dict(exposure=1, offset=0)
@@ -157,7 +169,8 @@ class TestRemoveDataPickleLogit(RemoveDataPickle):
         model = sm.Logit(y_bin, x)#, exposure=np.ones(nobs), offset=np.zeros(nobs)) #bug with default
         #use start_params to converge faster
         start_params = np.array([-0.73403806, -1.00901514, -0.97754543, -0.95648212])
-        self.results = model.fit(start_params=start_params, method='bfgs')
+        self.results = model.fit(start_params=start_params, method='bfgs',
+                disp=0)
 
 class TestRemoveDataPickleRLM(RemoveDataPickle):
 
