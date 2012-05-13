@@ -28,8 +28,8 @@ import statsmodels.base.wrapper as wrap
 __all__ = ['RLM']
 
 def _check_convergence(criterion, iteration, tol, maxiter):
-    return not (np.any(np.fabs(criterion[iteration] -
-                criterion[iteration-1]) > tol) and iteration < maxiter)
+    return not ((np.sqrt(np.sum(np.power(criterion[iteration] -
+                criterion[iteration-1], 2.0))/max(1e-20,np.sum(criterion[iteration-1]**2))) > tol) and iteration < maxiter)
 
 class RLM(base.LikelihoodModel):
     """
@@ -179,7 +179,9 @@ class RLM(base.LikelihoodModel):
         if conv == 'dev':
             history['deviance'].append(self.deviance(tmp_results))
         elif conv == 'sresid':
-            history['sresid'].append(tmp_results.resid/tmp_results.scale)
+            history['sresid'].append(tmp_results.resid/tmp_result.scale)
+        elif conv == 'resid':
+            history['resid'].append(tmp_results.resid)
         elif conv == 'weights':
             history['weights'].append(tmp_results.model.weights)
         return history
@@ -190,7 +192,7 @@ class RLM(base.LikelihoodModel):
         """
         if isinstance(self.scale_est, str):
             if self.scale_est.lower() == 'mad':
-                return scale.mad(resid)
+                return scale.mad(resid,c=0.6745)
             if self.scale_est.lower() == 'stand_mad':
                 return scale.stand_mad(resid)
         elif isinstance(self.scale_est, scale.HuberScale):
@@ -198,8 +200,8 @@ class RLM(base.LikelihoodModel):
         else:
             return scale.scale_est(self, resid)**2
 
-    def fit(self, maxiter=50, tol=1e-8, scale_est='mad', init=None, cov='H1',
-            update_scale=True, conv='dev'):
+    def fit(self, maxiter=50, tol=1e-4, scale_est='mad', init=None, cov='H1',
+            update_scale=True, conv='resid'):
         """
         Fits the model using iteratively reweighted least squares.
 
@@ -212,6 +214,7 @@ class RLM(base.LikelihoodModel):
             Indicates the convergence criteria.
             Available options are "coefs" (the coefficients), "weights" (the
             weights in the iteration), "sresid" (the standardized residuals),
+            "resid" (the residuals),
             and "dev" (the un-normalized log-likelihood for the M
             estimator).  The default is "dev".
         cov : string, optional
@@ -251,7 +254,7 @@ class RLM(base.LikelihoodModel):
         else:
             self.cov = cov.upper()
         conv = conv.lower()
-        if not conv in ["weights","coefs","dev","sresid"]:
+        if not conv in ["weights","coefs","dev","sresid","resid"]:
             raise ValueError("Convergence argument %s not understood" \
                 % conv)
         self.scale_est = scale_est
@@ -268,10 +271,13 @@ class RLM(base.LikelihoodModel):
         elif conv == 'sresid':
             history.update(dict(sresid = [np.inf]))
             criterion = history['sresid']
+        elif conv == 'resid':
+            history.update(dict(resid = [np.inf]))
+            criterion = history['resid']
         elif conv == 'weights':
             history.update(dict(weights = [np.inf]))
             criterion = history['weights']
-
+        
         # done one iteration so update
         history = self._update_history(wls_results, history, conv)
         iteration = 1
