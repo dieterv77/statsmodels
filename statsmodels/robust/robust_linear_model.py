@@ -179,7 +179,7 @@ class RLM(base.LikelihoodModel):
         if conv == 'dev':
             history['deviance'].append(self.deviance(tmp_results))
         elif conv == 'sresid':
-            history['sresid'].append(tmp_results.resid/tmp_result.scale)
+            history['sresid'].append(tmp_results.resid/tmp_results.scale)
         elif conv == 'resid':
             history['resid'].append(tmp_results.resid)
         elif conv == 'weights':
