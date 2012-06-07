@@ -258,7 +258,7 @@ class RLM(base.LikelihoodModel):
             raise ValueError("Convergence argument %s not understood" \
                 % conv)
         self.scale_est = scale_est
-        wls_results = lm.WLS(self.endog, self.exog).fit()
+        wls_results = lm.WLS(self.endog, self.exog).fit(method='qr')
         if not init:
             self.scale = self._estimate_scale(wls_results.resid)
 
@@ -285,7 +285,7 @@ class RLM(base.LikelihoodModel):
         while not converged:
             self.weights = self.M.weights(wls_results.resid/self.scale)
             wls_results = lm.WLS(self.endog, self.exog,
-                                 weights=self.weights).fit()
+                                 weights=self.weights).fit(method='qr')
             if update_scale is True:
                 self.scale = self._estimate_scale(wls_results.resid)
             history = self._update_history(wls_results, history, conv)
