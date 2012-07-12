@@ -21,7 +21,7 @@ from statsmodels.regression.linear_model import OLS, GLSAR
 from statsmodels.tools.tools import add_constant
 from statsmodels.datasets import macrodata
 
-import statsmodels.sandbox.panel.sandwich_covariance as sw
+import statsmodels.stats.sandwich_covariance as sw
 import statsmodels.stats.diagnostic as smsdia
 #import statsmodels.sandbox.stats.diagnostic as smsdia
 import statsmodels.stats.outliers_influence as oi
@@ -149,11 +149,13 @@ class TestDiagnosticG(object):
             0.0003896205316866944, -0.03958300024627578, 0.0003896205316866961,
             0.0985539340694839]).reshape(3,3, order='F')
 
-        cov, bse_hac = sw.cov_hac_simple(res, nlags=4, use_correction=False)
+        cov = sw.cov_hac_simple(res, nlags=4, use_correction=False)
+        bse_hac = sw.se_cov(cov)
         assert_almost_equal(cov, cov_hac_4, decimal=14)
         assert_almost_equal(bse_hac, np.sqrt(np.diag(cov)), decimal=14)
 
-        cov, bse_hac = sw.cov_hac_simple(res, nlags=10, use_correction=False)
+        cov = sw.cov_hac_simple(res, nlags=10, use_correction=False)
+        bse_hac = sw.se_cov(cov)
         assert_almost_equal(cov, cov_hac_10, decimal=14)
         assert_almost_equal(bse_hac, np.sqrt(np.diag(cov)), decimal=14)
 
@@ -229,13 +231,14 @@ class TestDiagnosticG(object):
     def test_het_white(self):
         res = self.res
 
-        #TODO: regressiontest compare with Greene or Gretl or Stata
+        #TODO: regressiontest, compare with Greene or Gretl or Stata
         hw = smsdia.het_white(res.resid, res.model.exog)
         hw_values = (33.503722896538441, 2.9887960597830259e-06,
                      7.7945101228430946, 1.0354575277704231e-06)
         assert_almost_equal(hw, hw_values)
 
     def test_het_arch(self):
+        #test het_arch and indirectly het_lm against R
         #> library(FinTS)
         #> at = ArchTest(residuals(fm), lags=4)
         #> mkhtest(at, 'archtest_4', 'chi2')
@@ -253,6 +256,24 @@ class TestDiagnosticG(object):
         at12 = smsdia.het_arch(self.res.resid, maxlag=12)
         compare_t_est(at4[:2], archtest_4, decimal=(12, 13))
         compare_t_est(at12[:2], archtest_12, decimal=(12, 13))
+
+    def test_het_arch2(self):
+        #test autolag options, this also test het_lm
+        #unfortunately optimal lag=1 for this data
+        resid = self.res.resid
+
+        res1 = smsdia.het_arch(resid, maxlag=1, autolag=None, store=True)
+        rs1 = res1[-1]
+
+        res2 = smsdia.het_arch(resid, maxlag=5, autolag='aic', store=True)
+        rs2 = res2[-1]
+
+        assert_almost_equal(rs2.resols.params, rs1.resols.params, decimal=13)
+        assert_almost_equal(res2[:4], res1[:4], decimal=13)
+
+        #test that smallest lag, maxlag=1 works
+        res3 = smsdia.het_arch(resid, maxlag=1, autolag='aic')
+        assert_almost_equal(res3[:4], res1[:4], decimal=13)
 
     def test_acorr_breush_godfrey(self):
         res = self.res
@@ -371,15 +392,15 @@ class TestDiagnosticG(object):
                       chi2value=4.66794408358942, pvalue=0.03073069384028677,
                       df=(4,3,1))
         lrt = res.compare_lr_test(res3)
-        assert_almost_equal(lrt[0], lrtest['chi2value'], decimal=12)
-        assert_almost_equal(lrt[1], lrtest['pvalue'], decimal=12)
+        assert_almost_equal(lrt[0], lrtest['chi2value'], decimal=11)
+        assert_almost_equal(lrt[1], lrtest['pvalue'], decimal=11)
 
         waldtest = dict(fvalue=4.65216373312492, pvalue=0.03221346195239025,
                         df=(199,200,1))
 
         wt = res.compare_f_test(res3)
-        assert_almost_equal(wt[0], waldtest['fvalue'], decimal=12)
-        assert_almost_equal(wt[1], waldtest['pvalue'], decimal=12)
+        assert_almost_equal(wt[0], waldtest['fvalue'], decimal=11)
+        assert_almost_equal(wt[1], waldtest['pvalue'], decimal=11)
 
 
     def test_compare_nonnested(self):
@@ -549,11 +570,11 @@ class TestDiagnosticG(object):
                     parameters=(), distr='-')
 
         ad1 = smsdia.normal_ad(res.resid)
-        compare_t_est(ad1, adr1, decimal=(12, 15))
+        compare_t_est(ad1, adr1, decimal=(11, 13))
         ad2 = smsdia.normal_ad(res.resid**2)
         assert_(np.isinf(ad2[0]))
         ad3 = smsdia.normal_ad(res.resid[:20])
-        compare_t_est(ad3, adr3, decimal=(13, 13))
+        compare_t_est(ad3, adr3, decimal=(11, 12))
 
 
     def test_influence(self):

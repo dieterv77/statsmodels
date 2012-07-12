@@ -212,7 +212,7 @@ class DiscreteModel(base.LikelihoodModel):
     def _check_perfect_pred(self, params):
         endog = self.endog
         fittedvalues = self.cdf(np.dot(self.exog, params))
-        if (self.raise_on_perfect_prediction and 
+        if (self.raise_on_perfect_prediction and
                 np.allclose(fittedvalues - endog, 0)):
             msg = "Perfect separation detected, results not available"
             raise PerfectSeparationError(msg)
@@ -326,7 +326,10 @@ class MultinomialModel(BinaryModel):
             order returned from the model.
         exog : array-like
             1d or 2d array of exogenous values.  If not supplied, the
-            whole exog attribute of the model is used.
+            whole exog attribute of the model is used. If a 1d array is given
+            it assumed to be 1 row of exogenous variables. If you only have
+            one regressor and would like to do prediction, you must provide
+            a 2d array with shape[1] == 1.
         linear : bool, optional
             If True, returns the linear predictor dot(exog,params).  Else,
             returns the value of the cdf at the linear predictor.
@@ -338,6 +341,8 @@ class MultinomialModel(BinaryModel):
         """
         if exog is None: # do here to accomodate user-given exog
             exog = self.exog
+        if exog.ndim == 1:
+            exog = exog[None]
         pred = super(MultinomialModel, self).predict(params, exog, linear)
         if linear:
             pred = np.column_stack((np.zeros(len(exog)), pred))
@@ -1556,6 +1561,8 @@ class DiscreteResults(base.LikelihoodModelResults):
             yname_list = self.model.endog_names
         return yname, yname_list
 
+
+
     def margeff(self, at='overall', method='dydx', atexog=None, dummy=False,
             count=False):
         """Get marginal effects of the fitted model.
@@ -1741,6 +1748,27 @@ class OrderedResults(DiscreteResults):
     pass
 
 class BinaryResults(DiscreteResults):
+
+    def pred_table(self, threshold=.5):
+        """
+        Prediction table
+
+        Parameters
+        ----------
+        threshold : scalar
+            Number between 0 and 1. Threshold above which a prediction is
+            considered 1 and below which a prediction is considered 0.
+
+        Notes
+        ------
+        pred_table[i,j] refers to the number of times "i" was observed and
+        the model predicted "j". Correct predictions are along the diagonal.
+        """
+        model = self.model
+        actual = model.endog
+        pred = np.array(self.predict() > threshold, dtype=float)
+        return np.histogram2d(actual, pred, bins=2)[0]
+
     def summary(self, yname=None, xname=None, title=None, alpha=.05,
                 yname_list=None):
         smry = super(BinaryResults, self).summary(yname, xname, title, alpha,
@@ -1794,6 +1822,21 @@ class MultinomialResults(DiscreteResults):
             ynames = ['='.join([yname, name]) for name in ynames]
             yname_list = ynames[1:] # assumes first variable is dropped
         return yname, yname_list
+
+    def pred_table(self):
+        """
+        Returns the J x J prediction table.
+
+        Notes
+        -----
+        pred_table[i,j] refers to the number of times "i" was observed and
+        the model predicted "j". Correct predictions are along the diagonal.
+        """
+        J = self.model.J
+        # these are the actual, predicted indices
+        idx = zip(self.model.endog, self.predict().argmax(1))
+        return np.histogram2d(self.model.endog, self.predict().argmax(1),
+                              bins=J)[0]
 
     @cache_readonly
     def bse(self):

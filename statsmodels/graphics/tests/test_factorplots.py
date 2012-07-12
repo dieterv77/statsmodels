@@ -1,12 +1,24 @@
 import numpy as np
+from nose import SkipTest
 from pandas import Series
-import matplotlib.pyplot as plt
 from statsmodels.graphics.factorplots import interaction_plot
+
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib
+    if matplotlib.__version__ < '1':
+        raise
+    have_matplotlib = True
+except:
+    have_matplotlib = False
+
 
 class TestInteractionPlot(object):
 
     @classmethod
     def setupClass(cls):
+        if not have_matplotlib:
+            raise SkipTest('matplotlib not available')
         np.random.seed(12345)
         cls.weight = np.random.randint(1,4,size=60)
         cls.duration = np.random.randint(1,3,size=60)
