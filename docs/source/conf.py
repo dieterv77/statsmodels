@@ -36,6 +36,13 @@ extensions = ['sphinx.ext.autodoc', 'sphinx.ext.doctest',
               'ipython_directive',
               'numpy_ext.numpydoc']
 
+# plot_directive is broken on old matplotlib
+from matplotlib import __version__ as mpl_version
+from distutils.version import LooseVersion
+if LooseVersion(mpl_version) < LooseVersion('1.0.1'):
+    extensions.remove('matplotlib.sphinxext.plot_directive')
+    extensions.append('numpy_ext.plot_directive')
+
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
 
@@ -294,5 +301,5 @@ intersphinx_mapping = {'numpy' : ('http://docs.scipy.org/doc/numpy/', None),
                        'python' : ('http://docs.python.org/3.2', None),
                        'pydagogue' : ('http://matthew-brett.github.com/pydagogue/', None)}
 
-from os.path import dirname, abspath
-plot_basedir = dirname(dirname(os.path.abspath(__file__)))
+from os.path import dirname, abspath, join
+plot_basedir = join(dirname(dirname(os.path.abspath(__file__))), 'source')
