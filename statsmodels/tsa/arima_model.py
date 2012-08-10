@@ -20,8 +20,8 @@ from statsmodels.tsa.tsatools import (lagmat, add_trend,
 from statsmodels.tsa.vector_ar import util
 from statsmodels.tsa.ar_model import AR
 from statsmodels.tsa.arima_process import arma2ma
-from statsmodels.sandbox.regression.numdiff import (approx_fprime,
-        approx_fprime_cs, approx_hess, approx_hess_cs)
+from statsmodels.tools.numdiff import (approx_fprime, approx_fprime_cs,
+        approx_hess_cs)
 from statsmodels.tsa.base.datetools import _index_date
 from statsmodels.tsa.kalmanf import KalmanFilter
 try:
@@ -219,6 +219,7 @@ class ARMA(tsbase.TimeSeriesModel):
 
     def __init__(self, endog, order=None, exog=None, dates=None, freq=None):
         super(ARMA, self).__init__(endog, exog, dates, freq)
+        exog = self._data.exog # get it after it's gone through processing
         if order is None:
             import warnings
             warnings.warn("In the next release order will not be optional "
@@ -228,6 +229,8 @@ class ARMA(tsbase.TimeSeriesModel):
             self.k_ma = k_ma = order[1]
             self.k_lags = k_lags = max(k_ar,k_ma+1)
         if exog is not None:
+            if exog.ndim == 1:
+                exog = exog[:,None]
             k_exog = exog.shape[1]  # number of exog. variables excl. const
         else:
             k_exog = 0
@@ -336,11 +339,7 @@ class ARMA(tsbase.TimeSeriesModel):
         loglike = self.loglike
         #if self.transparams:
         #    params = self._invtransparams(params)
-        if not fast_kalman or self.method == "css":
-            return approx_hess_cs(params, loglike, epsilon=1e-5)
-        else:
-            return approx_hess(params, self.loglike, epsilon=1e-3)[0]
-
+        return approx_hess_cs(params, loglike)
 
     def _transparams(self, params):
         """
@@ -395,6 +394,7 @@ class ARMA(tsbase.TimeSeriesModel):
                 start = 0
             else:
                 start = k_ar
+            self._set_predict_start_date(start) # else it's done in super
         elif isinstance(start, int):
             start = super(ARMA, self)._get_predict_start(start)
         else: # should be on a date
@@ -405,9 +405,9 @@ class ARMA(tsbase.TimeSeriesModel):
         _check_arima_start(start, k_ar, k_diff, method, dynamic)
         return start
 
-    def _get_predict_end(self, start, dynamic=False):
+    def _get_predict_end(self, end, dynamic=False):
         # pass through so predict works for ARIMA and ARMA
-        return super(ARMA, self)._get_predict_end(start)
+        return super(ARMA, self)._get_predict_end(end)
 
     def geterrors(self, params):
         """
@@ -1547,3 +1547,4 @@ if __name__ == "__main__":
     wpi = dta['wpi']
 
     mod = ARIMA(wpi, (1,1,1)).fit()
+

@@ -58,7 +58,7 @@ def _check_discrete_args(at, method):
 
 def _isdummy(X):
     """
-    Given an array X, returns a boolean column index for the dummy variables.
+    Given an array X, returns the column indices for the dummy variables.
 
     Parameters
     ----------
@@ -82,11 +82,11 @@ def _isdummy(X):
     ind = min & max & remainder
     if X.ndim == 1:
         ind = np.asarray([ind])
-    return ind
+    return np.where(ind)[0]
 
 def _iscount(X):
     """
-    Given an array X, returns a boolean column index for count variables.
+    Given an array X, returns the column indices for count variables.
 
     Parameters
     ----------
@@ -106,7 +106,7 @@ def _iscount(X):
                                X.var(0) != 0)
     dummy = _isdummy(X)
     remainder -= dummy
-    return remainder
+    return np.where(remainder)[0]
 
 def _get_margeff_exog(exog, at, atexog, ind):
     if atexog is not None: # user supplied
@@ -125,43 +125,41 @@ def _get_margeff_exog(exog, at, atexog, ind):
     return exog
 
 def _get_count_effects(effects, exog, count_ind, method, model, params):
-    for i, tf in enumerate(count_ind):
-        if tf == True:
-            exog0 = exog.copy()
-            effect0 = model.predict(params, exog0)
-            wf1 = model.predict
-            exog0[:,i] += 1
-            effect1 = model.predict(params, exog0)
-    #TODO: compute discrete elasticity correctly
-    #Stata doesn't use the midpoint method or a weighted average.
-    #Check elsewhere
-            if 'ey' in method:
-                pass
-                ##TODO: don't know if this is theoretically correct
-                #fittedvalues0 = np.dot(exog0,params)
-                #fittedvalues1 = np.dot(exog1,params)
-                #weight1 = model.exog[:,i].mean()
-                #weight0 = 1 - weight1
-                #wfv = (.5*model.cdf(fittedvalues1) + \
-                        #        .5*model.cdf(fittedvalues0))
-                #effects[i] = ((effect1 - effect0)/wfv).mean()
-            effects[i] = (effect1 - effect0).mean()
+    for i in count_ind:
+        exog0 = exog.copy()
+        effect0 = model.predict(params, exog0)
+        wf1 = model.predict
+        exog0[:,i] += 1
+        effect1 = model.predict(params, exog0)
+#TODO: compute discrete elasticity correctly
+#Stata doesn't use the midpoint method or a weighted average.
+#Check elsewhere
+        if 'ey' in method:
+            pass
+            ##TODO: don't know if this is theoretically correct
+            #fittedvalues0 = np.dot(exog0,params)
+            #fittedvalues1 = np.dot(exog1,params)
+            #weight1 = model.exog[:,i].mean()
+            #weight0 = 1 - weight1
+            #wfv = (.5*model.cdf(fittedvalues1) + \
+                    #        .5*model.cdf(fittedvalues0))
+            #effects[i] = ((effect1 - effect0)/wfv).mean()
+        effects[i] = (effect1 - effect0).mean()
     return effects
 
 
 def _get_dummy_effects(effects, exog, dummy_ind, method, model, params):
-    for i, tf in enumerate(dummy_ind):
-        if tf == True:
-            exog0 = exog.copy() # only copy once, can we avoid a copy?
-            exog0[:,i] = 0
-            effect0 = model.predict(params, exog0)
-            #fittedvalues0 = np.dot(exog0,params)
-            exog0[:,i] = 1
-            effect1 = model.predict(params, exog0)
-            if 'ey' in method:
-                effect0 = np.log(effect0)
-                effect1 = np.log(effect1)
-            effects[i] = (effect1 - effect0).mean() # mean for overall
+    for i in dummy_ind:
+        exog0 = exog.copy() # only copy once, can we avoid a copy?
+        exog0[:,i] = 0
+        effect0 = model.predict(params, exog0)
+        #fittedvalues0 = np.dot(exog0,params)
+        exog0[:,i] = 1
+        effect1 = model.predict(params, exog0)
+        if 'ey' in method:
+            effect0 = np.log(effect0)
+            effect1 = np.log(effect1)
+        effects[i] = (effect1 - effect0).mean() # mean for overall
     return effects
 
 def _effects_at(effects, at, ind):
@@ -1385,7 +1383,7 @@ class NBin(CountModel):
 
     def hessian(self, params):
         """
-        Hessian of NB2 model.  Currently uses numdifftools
+        Hessian of NB2 model.
         """
         lnalpha = params[-1]
         params = params[:-1]
@@ -1660,10 +1658,17 @@ class DiscreteResults(base.LikelihoodModelResults):
         effects = _effects_at(effects, at, ind)
 
         if dummy == True:
+            if np.any(~ind):
+                const_idx = np.where(~ind)[0]
+                dummy_ind[const_idx:] -= 1
             effects = _get_dummy_effects(effects, exog, dummy_ind, method,
                                          model, params)
 
         if count == True:
+            if np.any(~ind):
+                const_idx = np.where(~ind)[0]
+                count_ind[const_idx:] -= 1 # adjust back for constant because
+                               # effects doesn't have one
             effects = _get_count_effects(effects, exog, count_ind, method,
                                          model, params)
 
@@ -1924,7 +1929,7 @@ if __name__=="__main__":
 #    res1 = optimize.fmin_l_bfgs_b(func, np.r_[poiss_res.params,.1],
 #                        approx_grad=True)
     res1 = optimize.fmin_bfgs(func, np.r_[poiss_res.params,.1], fprime=grad)
-    from statsmodels.sandbox.regression.numdiff import approx_hess_cs
+    from statsmodels.tools.numdiff import approx_hess_cs
 #    np.sqrt(np.diag(-np.linalg.inv(approx_hess_cs(np.r_[params,lnalpha], mod.loglike))))
 #NOTE: this is the hessian in terms of alpha _not_ lnalpha
     hess_arr = mod.hessian(res1)

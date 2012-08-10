@@ -214,9 +214,6 @@ class Test_Y_ARMA14_NoConst(CheckArmaResults):
         endog = y_arma[:,1]
         cls.res1 = ARMA(endog, order=(1,4)).fit(trend='nc', disp=-1)
         cls.res2 = results_arma.Y_arma14()
-        if fast_kalman:
-            cls.decimal_t = 0
-
 
 #NOTE: Ok
 #can't use class decorators in 2.5....
@@ -238,8 +235,6 @@ class Test_Y_ARMA22_NoConst(CheckArmaResults):
         endog = y_arma[:,3]
         cls.res1 = ARMA(endog, order=(2,2)).fit(trend='nc', disp=-1)
         cls.res2 = results_arma.Y_arma22()
-        if fast_kalman:
-            cls.decimal_t -= 1
 
 #NOTE: Ok
 class Test_Y_ARMA50_NoConst(CheckArmaResults, CheckForecast):
@@ -258,8 +253,6 @@ class Test_Y_ARMA02_NoConst(CheckArmaResults):
         endog = y_arma[:,5]
         cls.res1 = ARMA(endog, order=(0,2)).fit(trend='nc', disp=-1)
         cls.res2 = results_arma.Y_arma02()
-        if fast_kalman:
-            cls.decimal_t -= 1
 
 #NOTE: Ok
 class Test_Y_ARMA11_Const(CheckArmaResults, CheckForecast):
@@ -278,9 +271,6 @@ class Test_Y_ARMA14_Const(CheckArmaResults):
         endog = y_arma[:,7]
         cls.res1 = ARMA(endog, order=(1,4)).fit(trend="c", disp=-1)
         cls.res2 = results_arma.Y_arma14c()
-        if fast_kalman:
-            cls.decimal_t = 0
-            cls.decimal_cov_params -= 1
 
 #NOTE: Ok
 #@dec.slow
@@ -307,8 +297,6 @@ class Test_Y_ARMA22_Const(CheckArmaResults):
         endog = y_arma[:,9]
         cls.res1 = ARMA(endog, order=(2,2)).fit(trend="c", disp=-1)
         cls.res2 = results_arma.Y_arma22c()
-        if fast_kalman:
-            cls.decimal_t = 0
 
 #NOTE: Ok
 class Test_Y_ARMA50_Const(CheckArmaResults, CheckForecast):
@@ -327,8 +315,6 @@ class Test_Y_ARMA02_Const(CheckArmaResults):
         endog = y_arma[:,11]
         cls.res1 = ARMA(endog, order=(0,2)).fit(trend="c", disp=-1)
         cls.res2 = results_arma.Y_arma02c()
-        if fast_kalman:
-            cls.decimal_t -= 1
 
 #NOTE:
 # cov_params and tvalues are off still but not as much vs. R
@@ -1583,6 +1569,20 @@ def test_arima_wrapper():
                                     'ma.L1.D.cpi'])
     assert_equal(res.model.endog_names, 'D.cpi')
 
+def test_1dexog():
+    # smoke test, this will raise an error if broken
+    from statsmodels.datasets.macrodata import load_pandas
+    dta = load_pandas().data
+    endog = dta['realcons'].values
+    exog = dta['m1'].values.squeeze()
+    mod = ARMA(endog, (1,1), exog).fit(disp=-1)
+
+def arima_predict_bug():
+    #predict_start_date wasn't getting set on start = None
+    dta = sm.datasets.sunspots.load_pandas().data
+    dta.index = pandas.Index(sm.tsa.datetools.dates_from_range('1700', '2008'))
+    arma_mod20 = sm.tsa.ARMA(dta, (2,0)).fit(disp=-1)
+    arma_mod20.predict(None, None)
 
 if __name__ == "__main__":
     import nose
