@@ -77,9 +77,7 @@ class CheckRegressionResults(object):
 
     decimal_ess = DECIMAL_4
     def test_ess(self):
-        """
-        Explained Sum of Squares
-        """
+        #Explained Sum of Squares
         assert_almost_equal(self.res1.ess, self.res2.ess,
                     self.decimal_ess)
 
@@ -89,9 +87,7 @@ class CheckRegressionResults(object):
 
     decimal_mse_resid = DECIMAL_4
     def test_mse_resid(self):
-        """
-        Mean squared error of residuals
-        """
+        #Mean squared error of residuals
         assert_almost_equal(self.res1.mse_model, self.res2.mse_model,
                     self.decimal_mse_resid)
 
@@ -187,6 +183,14 @@ class TestOLS(CheckRegressionResults):
                 self.res1.normalized_cov_params /
                 self.res_qr.normalized_cov_params, 5)
 
+    def test_missing(self):
+        data = longley.load()
+        data.exog = add_constant(data.exog)
+        data.endog[[3, 7, 14]] = np.nan
+        mod = OLS(data.endog, data.exog, missing='drop')
+        assert_equal(mod.endog.shape[0], 13)
+        assert_equal(mod.exog.shape[0], 13)
+
 
 class TestFtest(object):
     """
@@ -276,7 +280,6 @@ class TestFtestQ(object):
     def test_df_num(self):
         assert_equal(self.Ftest1.df_num, 5)
 
-
 class TestTtest(object):
     '''
     Test individual t-tests.  Ie., are the coefficients significantly
@@ -365,6 +368,10 @@ class TestGLS(object):
         GLS_results = GLS(data.endog, exog, sigma=sigma).fit()
         cls.res1 = GLS_results
         cls.res2 = LongleyGls()
+        # attach for test_missing
+        cls.sigma = sigma
+        cls.exog = exog
+        cls.endog = data.endog
 
     def test_aic(self):
         assert_approx_equal(self.res1.aic+2, self.res2.aic, 3)
@@ -397,6 +404,14 @@ class TestGLS(object):
     def test_pvalues(self):
         assert_almost_equal(self.res1.pvalues, self.res2.pvalues, DECIMAL_4)
 
+    def test_missing(self):
+        endog = self.endog.copy() # copy or changes endog for other methods
+        endog[[4,7,14]] = np.nan
+        mod = GLS(endog, self.exog, sigma=self.sigma, missing='drop')
+        assert_equal(mod.endog.shape[0], 13)
+        assert_equal(mod.exog.shape[0], 13)
+        assert_equal(mod.sigma.shape, (13,13))
+
 class TestGLS_nosigma(CheckRegressionResults):
     '''
     Test that GLS with no argument is equivalent to OLS.
@@ -414,37 +429,83 @@ class TestGLS_nosigma(CheckRegressionResults):
 #    def check_confidenceintervals(self, conf1, conf2):
 #        assert_almost_equal(conf1, conf2, DECIMAL_4)
 
-#class TestWLS(CheckRegressionResults):
-#    '''
-#    Test WLS with Greene's credit card data
-#    '''
-#    def __init__(self):
-#        from statsmodels.datasets.ccard import load
-#        self.data = load()
-#        self.res1 = WLS(self.data.endog, self.data.exog,
-#                weights=1/self.data.exog[:,2]).fit()
-#FIXME: triaged results for noconstant
-#        self.res1.ess = self.res1.uncentered_tss - self.res1.ssr
-#        self.res1.rsquared = self.res1.ess/self.res1.uncentered_tss
-#        self.res1.mse_model = self.res1.ess/(self.res1.df_model + 1)
-#        self.res1.fvalue = self.res1.mse_model/self.res1.mse_resid
-#        self.res1.rsquared_adj = 1 -(self.res1.nobs)/(self.res1.df_resid)*\
-#                (1-self.res1.rsquared)
+class TestWLSExogWeights(CheckRegressionResults):
+    #Test WLS with Greene's credit card data
+    #reg avgexp age income incomesq ownrent [aw=1/incomesq]
+    def __init__(self):
+        from results.results_regression import CCardWLS
+        from statsmodels.datasets.ccard import load
+        dta = load()
 
-#    def check_confidenceintervals(self, conf1, conf2):
-#        assert_almost_equal(conf1, conf2, DECIMAL_4)
+        dta.exog = add_constant(dta.exog, prepend=False)
+        nobs = 72.
 
+        weights = 1/dta.exog[:,2]
+        # for comparison with stata analytic weights
+        scaled_weights = ((weights * nobs)/weights.sum())
 
-class TestWLS_GLS(CheckRegressionResults):
+        self.res1 = WLS(dta.endog, dta.exog, weights=scaled_weights).fit()
+        self.res2 = CCardWLS()
+        self.res2.wresid = scaled_weights ** .5 * self.res2.resid
+
+def test_wls_example():
+    #example from the docstring, there was a note about a bug, should
+    #be fixed now
+    Y = [1,3,4,5,2,3,4]
+    X = range(1,8)
+    X = add_constant(X, prepend=False)
+    wls_model = WLS(Y,X, weights=range(1,8)).fit()
+    #taken from R lm.summary
+    assert_almost_equal(wls_model.fvalue, 0.127337843215, 6)
+    assert_almost_equal(wls_model.scale, 2.44608530786**2, 6)
+
+def test_wls_tss():
+    y = np.array([22, 22, 22, 23, 23, 23])
+    X = [[1, 0], [1, 0], [1, 1], [0, 1], [0, 1], [0, 1]]
+
+    ols_mod = OLS(y, add_constant(X)).fit()
+
+    yw = np.array([22, 22, 23.])
+    Xw = [[1,0],[1,1],[0,1]]
+    w = np.array([2, 1, 3.])
+
+    wls_mod = WLS(yw, add_constant(Xw), weights=w).fit()
+    assert_equal(ols_mod.centered_tss, wls_mod.centered_tss)
+
+class TestWLSScalarVsArray(CheckRegressionResults):
     @classmethod
     def setupClass(cls):
-        from statsmodels.datasets.ccard import load
-        data = load()
-        cls.res1 = WLS(data.endog, data.exog, weights = 1/data.exog[:,2]).fit()
-        cls.res2 = GLS(data.endog, data.exog, sigma = data.exog[:,2]).fit()
+        from statsmodels.datasets.longley import load
+        dta = load()
+        dta.exog = add_constant(dta.exog, prepend=True)
+        wls_scalar = WLS(dta.endog, dta.exog, weights=1./3).fit()
+        weights = [1/3.] * len(dta.endog)
+        wls_array = WLS(dta.endog, dta.exog, weights=weights).fit()
+        cls.res1 = wls_scalar
+        cls.res2 = wls_array
 
-    def check_confidenceintervals(self, conf1, conf2):
-        assert_almost_equal(conf1, conf2(), DECIMAL_4)
+#class TestWLS_GLS(CheckRegressionResults):
+#    @classmethod
+#    def setupClass(cls):
+#        from statsmodels.datasets.ccard import load
+#        data = load()
+#        cls.res1 = WLS(data.endog, data.exog, weights = 1/data.exog[:,2]).fit()
+#        cls.res2 = GLS(data.endog, data.exog, sigma = data.exog[:,2]).fit()
+#
+#    def check_confidenceintervals(self, conf1, conf2):
+#        assert_almost_equal(conf1, conf2(), DECIMAL_4)
+
+def test_wls_missing():
+    from statsmodels.datasets.ccard import load
+    data = load()
+    endog = data.endog
+    endog[[10, 25]] = np.nan
+    mod = WLS(data.endog, data.exog, weights = 1/data.exog[:,2], missing='drop')
+    assert_equal(mod.endog.shape[0], 70)
+    assert_equal(mod.exog.shape[0], 70)
+    assert_equal(mod.weights.shape[0], 70)
+
+
 
 class TestWLS_OLS(CheckRegressionResults):
     @classmethod

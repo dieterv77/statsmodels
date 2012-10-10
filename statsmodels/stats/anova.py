@@ -59,7 +59,7 @@ def anova_single(model, **kwargs):
     nobs = exog.shape[0]
 
     response_name = model.model.endog_names
-    design_info = model.model._data._orig_exog.design_info
+    design_info = model.model.data.orig_exog.design_info
     exog_names = model.model.exog_names
     # +1 for resids
     n_rows = (len(design_info.terms) - _has_intercept(design_info) + 1)
@@ -359,9 +359,9 @@ if __name__ == "__main__":
                                 names=['partner_status','conformity',
                                     'fcategory','fscore'])
     moore_lm = ols('conformity ~ C(fcategory, Sum)*C(partner_status, Sum)',
-                    df=moore).fit()
+                    data=moore).fit()
 
-    mooreB = ols('conformity ~ C(partner_status, Sum)', df=moore).fit()
+    mooreB = ols('conformity ~ C(partner_status, Sum)', data=moore).fit()
 
     # for each term you just want to test vs the model without its
     # higher-order terms

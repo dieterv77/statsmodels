@@ -24,18 +24,28 @@ print lpm_res.params[:-1]
 logit_mod = sm.Logit(spector_data.endog, spector_data.exog)
 logit_res = logit_mod.fit()
 print logit_res.params
-print logit_res.margeff()
+logit_margeff = logit_res.get_margeff(method='dydx', at='overall')
+print logit_margeff.summary()
+
+#l1 regularized logit
+#-----------
+alpha = 0.1 * len(spector_data.endog) * np.ones(spector_data.exog.shape[1])
+alpha[-1] = 0
+logit_l1_res = logit_mod.fit_regularized(method='l1', alpha=alpha)
+print logit_l1_res.summary()
+
 
 # As in all the discrete data models presented below, we can print a nice
 # summary of results:
 print logit_res.summary()
 
-#Probit Model 
+#Probit Model
 #------------
 probit_mod = sm.Probit(spector_data.endog, spector_data.exog)
 probit_res = probit_mod.fit()
 print probit_res.params
-print probit_res.margeff()
+probit_margeff = probit_res.get_margeff()
+print probit_margeff.summary()
 
 #Multinomial Logit
 #-----------------
@@ -43,40 +53,56 @@ print probit_res.margeff()
 # Load data from the American National Election Studies:
 anes_data = sm.datasets.anes96.load()
 anes_exog = anes_data.exog
-anes_exog[:,0] = np.log(anes_exog[:,0] + .1)
-anes_exog = np.column_stack((anes_exog[:,0],anes_exog[:,2],anes_exog[:,5:8]))
 anes_exog = sm.add_constant(anes_exog, prepend=False)
 
-# Inspect the data: 
+# Inspect the data:
 anes_data.exog[:5,:]
 anes_data.endog[:5]
 
 # Fit MNL model
 mlogit_mod = sm.MNLogit(anes_data.endog, anes_exog)
 mlogit_res = mlogit_mod.fit()
-mlogit_res.params
+print mlogit_res.params
+mlogit_margeff = mlogit_res.get_margeff()
+print mlogit_margeff.summary()
+
+#l1 regularized Multinomial Logit
+#-----------------
+alpha = 10 * np.ones((mlogit_mod.J - 1, mlogit_mod.K))
+alpha[-1,:] = 0
+mlogit_mod2 = sm.MNLogit(anes_data.endog, anes_exog)
+mlogit_l1_res = mlogit_mod2.fit_regularized(method='l1', alpha=alpha)
+print mlogit_l1_res.summary()
 
 #Poisson model
 #-------------
 
 # Load the Rand data. Note that this example is similar to Cameron and
 # Trivedi's `Microeconometrics` Table 20.5, but it is slightly different
-# because of minor changes in the data. 
+# because of minor changes in the data.
 rand_data = sm.datasets.randhie.load()
 rand_exog = rand_data.exog.view(float).reshape(len(rand_data.exog), -1)
 rand_exog = sm.add_constant(rand_exog, prepend=False)
 
-# Fit Poisson model: 
+# Fit Poisson model:
 poisson_mod = sm.Poisson(rand_data.endog, rand_exog)
 poisson_res = poisson_mod.fit(method="newton")
 print poisson_res.summary()
+poisson_margeff = poisson_res.get_margeff()
+print poisson_margeff.summary()
+
+# l1 regularized Poisson model
+poisson_mod2 = sm.Poisson(rand_data.endog, rand_exog)
+alpha = 0.1 * len(rand_data.endog) * np.ones(rand_exog.shape[1])
+alpha[-1] = 0
+poisson_l1_res = poisson_mod2.fit_regularized(method='l1', alpha=alpha)
 
 #Alternative solvers
 #-------------------
 
 # The default method for fitting discrete data MLE models is Newton-Raphson.
-# You can use other solvers by using the ``method`` argument: 
-mlogit_res = mlogit_mod.fit(method='bfgs', maxiter=100)
+# You can use other solvers by using the ``method`` argument:
+mlogit_res = mlogit_mod.fit(method='bfgs', maxiter=500)
 
 #.. The below needs a lot of iterations to get it right?
 #.. TODO: Add a technical note on algorithms

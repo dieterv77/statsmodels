@@ -317,23 +317,20 @@ class VAR(tsbase.TimeSeriesModel):
 
     Parameters
     ----------
-    endog : np.ndarray (structured or homogeneous) or DataFrame
+    endog : array-like
+        1-d endogenous response variable. The independent variable.
     names : array-like
         must match number of columns of endog
     dates : array-like
         must match number of rows of endog
 
-    Notes
-    -----
-    **References**
+    References
+    ----------
     Lutkepohl (2005) New Introduction to Multiple Time Series Analysis
-
-    Returns
-    -------
-    .fit() method returns VARResults object
     """
-    def __init__(self, endog, dates=None, names=None, freq=None):
-        super(VAR, self).__init__(endog, None, dates, freq)
+    def __init__(self, endog, dates=None, names=None, freq=None,
+            missing='none'):
+        super(VAR, self).__init__(endog, None, dates, freq, missing=missing)
         if names is not None:
             import warnings
             warnings.warn("The names argument is deprecated and will be "
@@ -483,7 +480,7 @@ class VAR(tsbase.TimeSeriesModel):
         omega = sse / df_resid
 
         varfit = VARResults(y, z, params, omega, lags, names=self.endog_names,
-                          trend=trend, dates=self._data.dates, model=self)
+                          trend=trend, dates=self.data.dates, model=self)
         return VARResultsWrapper(varfit)
 
     def select_order(self, maxlags=None, verbose=True):

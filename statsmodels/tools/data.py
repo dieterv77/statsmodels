@@ -97,6 +97,10 @@ def interpret_data(data, colnames=None, rownames=None):
 def struct_to_ndarray(arr):
     return arr.view((float, len(arr.dtype.names)))
 
+def _is_using_ndarray_type(endog, exog):
+    return (type(endog) is np.ndarray and
+            (type(exog) is np.ndarray or exog is None))
+
 def _is_using_ndarray(endog, exog):
     return (isinstance(endog, np.ndarray) and
             (isinstance(exog, np.ndarray) or exog is None))
@@ -107,21 +111,6 @@ def _is_using_pandas(endog, exog):
     from pandas import Series, DataFrame, WidePanel
     klasses = (Series, DataFrame, WidePanel)
     return (isinstance(endog, klasses) or isinstance(exog, klasses))
-
-def _is_using_larry(endog, exog):
-    try:
-        import la
-        return isinstance(endog, la.larry) or isinstance(exog, la.larry)
-    except ImportError:
-        return False
-
-def _is_using_timeseries(endog, exog):
-    try:
-        from scikits.timeseries import TimeSeries as tsTimeSeries
-        return isinstance(endog, tsTimeSeries) or isinstance(exog, tsTimeSeries)
-    except ImportError:
-        # if there is no deprecated scikits.timeseries, it is safe to say NO
-        return False
 
 def _is_array_like(endog, exog):
     try: # do it like this in case of mixed types, ie., ndarray and list

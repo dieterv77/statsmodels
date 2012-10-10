@@ -94,9 +94,6 @@ class TestGradMNLogit(CheckGradLoglike):
         #from results.results_discrete import Anes
         data = sm.datasets.anes96.load()
         exog = data.exog
-        exog[:,0] = np.log(exog[:,0] + .1)
-        exog = np.column_stack((exog[:,0],exog[:,2],
-            exog[:,5:8]))
         exog = sm.add_constant(exog)
         self.mod = sm.MNLogit(data.endog, exog)
 
@@ -106,7 +103,7 @@ class TestGradMNLogit(CheckGradLoglike):
         #self.mod.loglike = loglikeflat  #need instance method
         #self.params = [np.ones((6,6)).ravel()]
         res = self.mod.fit(disp=0)
-        self.params = [res.params.ravel(order='F')]
+        self.params = [res.params.ravel('F')]
 
     def test_hess(self):
         #NOTE: I had to overwrite this to lessen the tolerance
@@ -121,7 +118,7 @@ class TestGradMNLogit(CheckGradLoglike):
             assert_almost_equal(he, hefd, decimal=7)
             hefd = numdiff.approx_fprime(test_params, self.mod.score,
                                          centered=True)
-            assert_almost_equal(he, hefd, decimal=5)
+            assert_almost_equal(he, hefd, decimal=4)
             hefd = numdiff.approx_fprime(test_params, self.mod.score, 1e-9,
                                          centered=False)
             assert_almost_equal(he, hefd, decimal=2)
@@ -356,9 +353,6 @@ if __name__ == '__main__':
 
     data = sm.datasets.anes96.load()
     exog = data.exog
-    exog[:,0] = np.log(exog[:,0] + .1)
-    exog = np.column_stack((exog[:,0],exog[:,2],
-        exog[:,5:8]))
     exog = sm.add_constant(exog)
     res1 = sm.MNLogit(data.endog, exog).fit(method="newton", disp=0)
 
