@@ -83,9 +83,10 @@ class RegressionModel(base.LikelihoodModel):
         self.wendog = self.whiten(self.endog)
         # overwrite nobs from class Model:
         self.nobs = float(self.wexog.shape[0])
-        self.df_resid = self.nobs - rank(self.exog)
-        #Below assumes that we have a constant
-        self.df_model = float(rank(self.exog)-1)
+        self.rank = rank(self.exog)
+        self.df_model = float(self.rank - self.k_constant)
+        self.df_resid = self.nobs - self.rank
+        self.df_model = float(rank(self.exog) - self.k_constant)
 
     def fit(self, method="pinv", **kwargs):
         """
@@ -111,9 +112,6 @@ class RegressionModel(base.LikelihoodModel):
 
         Notes
         -----
-        Currently it is assumed that all models will have an intercept /
-        constant in the design matrix for postestimation statistics.
-
         The fit method uses the pseudoinverse of the design/exogenous variables
         to solve the least squares minimization.
         """
@@ -130,15 +128,17 @@ class RegressionModel(base.LikelihoodModel):
             beta = np.dot(self.pinv_wexog, endog)
 
         elif method == "qr":
-            if ((not hasattr(self, '_exog_Q')) or
+            if ((not hasattr(self, 'exog_Q')) or
                 (not hasattr(self, 'normalized_cov_params'))):
                 Q, R = np.linalg.qr(exog)
-                self._exog_Q, self._exog_R = Q, R
+                self.exog_Q, self.exog_R = Q, R
                 self.normalized_cov_params = np.linalg.inv(np.dot(R.T, R))
             else:
-                Q, R = self._exog_Q, self._exog_R
+                Q, R = self.exog_Q, self.exog_R
 
-            beta = np.linalg.solve(R,np.dot(Q.T,endog))
+            # used in ANOVA
+            self.effects = effects = np.dot(Q.T, endog)
+            beta = np.linalg.solve(R, effects)
 
             # no upper triangular solve routine in numpy/scipy?
         if isinstance(self, OLS):
@@ -247,14 +247,15 @@ class GLS(RegressionModel):
     >>> print gls_results.summary()
 
     """ % {'params' : base._model_params_doc,
-           'extra_params' : base._missing_param_doc}
+           'extra_params' : base._extra_param_doc}
 
-    def __init__(self, endog, exog, sigma=None, missing='none'):
+    def __init__(self, endog, exog, sigma=None, missing='none', hasconst=None):
     #TODO: add options igls, for iterative fgls if sigma is None
     #TODO: default is sigma is none should be two-step GLS
         sigma, cholsigmainv = _get_sigma(sigma, len(endog))
         super(GLS, self).__init__(endog, exog, missing=missing,
-                                  sigma=sigma, cholsigmainv=cholsigmainv)
+                                  hasconst=hasconst, sigma=sigma,
+                                  cholsigmainv=cholsigmainv)
 
         #store attribute names for data arrays
         self._data_attr.extend(['sigma', 'cholsigmainv'])
@@ -353,12 +354,13 @@ class WLS(RegressionModel):
     >>> wls_model = sm.WLS(Y,X, weights=range(1,8))
     >>> results = wls_model.fit()
     >>> results.params
-    array([ 0.0952381 ,  2.91666667])
+    array([ 2.91666667,  0.0952381 ])
     >>> results.tvalues
-    array([ 0.35684428,  2.0652652 ])
-    <T test: effect=2.9166666666666674, sd=1.4122480109543243, t=2.0652651970780505, p=0.046901390323708769, df_denom=5>
-    >>> print results.f_test([1,0])
-    <F test: F=0.12733784321528099, p=0.735774089183, df_denom=5, df_num=1>
+    array([ 2.0652652 ,  0.35684428])
+    >>> print results.t_test([1, 0])
+    <T test: effect=array([ 2.91666667]), sd=array([[ 1.41224801]]), t=array([[ 2.0652652]]), p=array([[ 0.04690139]]), df_denom=5>
+    >>> print results.f_test([0, 1])
+    <F test: F=array([[ 0.12733784]]), p=[[ 0.73577409]], df_denom=5, df_num=1>
 
     Notes
     -----
@@ -366,15 +368,15 @@ class WLS(RegressionModel):
     statistics such as fvalue and mse_model might not be correct, as the
     package does not yet support no-constant regression.
     """ % {'params' : base._model_params_doc,
-           'extra_params' : base._missing_param_doc}
+           'extra_params' : base._extra_param_doc}
 
-    def __init__(self, endog, exog, weights=1., missing='none'):
+    def __init__(self, endog, exog, weights=1., missing='none', hasconst=None):
         weights = np.array(weights)
         if weights.shape == ():
             weights = np.repeat(weights, len(endog))
         weights = weights.squeeze()
         super(WLS, self).__init__(endog, exog, missing=missing,
-                                  weights=weights)
+                                  weights=weights, hasconst=hasconst)
         nobs = self.exog.shape[0]
         weights = self.weights
         if len(weights) != nobs and weights.size == nobs:
@@ -450,28 +452,29 @@ class OLS(WLS):
     >>> import statsmodels.api as sm
     >>>
     >>> Y = [1,3,4,5,2,3,4]
-    >>> X = range(1,8) #[:,np.newaxis]
+    >>> X = range(1,8)
     >>> X = sm.add_constant(X)
     >>>
     >>> model = sm.OLS(Y,X)
     >>> results = model.fit()
     >>> results.params
-    array([ 0.25      ,  2.14285714])
-    >>> results.tvales
-    array([ 0.98019606,  1.87867287])
-    >>> print results.t_test([0,1])
-    <T test: effect=2.1428571428571423, sd=1.1406228159050935, t=1.8786728732554485, p=0.059539737780605395, df_denom=5>
+    array([ 2.14285714,  0.25      ])
+    >>> results.tvalues
+    array([ 1.87867287,  0.98019606])
+    >>> print results.t_test([1, 0])
+<T test: effect=array([ 2.14285714]), sd=array([[ 1.14062282]]), t=array([[ 1.87867287]]), p=array([[ 0.05953974]]), df_denom=5>
     >>> print results.f_test(np.identity(2))
-    <F test: F=19.460784313725501, p=0.00437250591095, df_denom=5, df_num=2>
+    <F test: F=array([[ 19.46078431]]), p=[[ 0.00437251]], df_denom=5, df_num=2>
 
     Notes
     -----
-    OLS, as the other models, assumes that the design matrix contains a constant.
+    No constant is added by the model unless you are using formulas.
     """ % {'params' : base._model_params_doc,
-           'extra_params' : base._missing_param_doc}
+           'extra_params' : base._extra_param_doc}
     #TODO: change example to use datasets.  This was the point of datasets!
-    def __init__(self, endog, exog=None, missing='none'):
-        super(OLS, self).__init__(endog, exog, missing=missing)
+    def __init__(self, endog, exog=None, missing='none', hasconst=None):
+        super(OLS, self).__init__(endog, exog, missing=missing,
+                                  hasconst=hasconst)
 
     def loglike(self, params):
         '''
@@ -529,15 +532,13 @@ class GLSAR(GLS):
     AR coefficients: [-0.6048218  -0.85846157]
     AR coefficients: [-0.60479146 -0.85841922]
     >>> results.params
-    array([ 1.60850853, -0.66661205])
+    array([-0.66661205,  1.60850853])
     >>> results.tvalues
-    array([ 21.8047269 ,  -2.10304127])
-    >>> print results.t_test([0,1])
-    <T test: effect=array([-0.66661205]), sd=array([[ 0.31697526]]),
-    t=array([[-2.10304127]]), p=array([[ 0.06309969]]), df_denom=3>
-    >>> print(results.f_test(np.identity(2)))
-    <F test: F=array([[ 1815.23061844]]), p=[[ 0.00002372]], df_denom=3,
-                                                             df_num=2>
+    array([ -2.10304127,  21.8047269 ])
+    >>> print results.t_test([1, 0])
+    <T test: effect=array([-0.66661205]), sd=array([[ 0.31697526]]), t=array([[-2.10304127]]), p=array([[ 0.06309969]]), df_denom=3>
+    >>> print results.f_test(np.identity(2))
+<F test: F=array([[ 1815.23061844]]), p=[[ 0.00002372]], df_denom=3, df_num=2>
 
     Or, equivalently
 
@@ -552,7 +553,7 @@ class GLSAR(GLS):
     The linear autoregressive process of order p--AR(p)--is defined as:
         TODO
     """ % {'params' : base._model_params_doc,
-           'extra_params' : base._missing_param_doc}
+           'extra_params' : base._missing_param_doc + base._extra_param_doc}
     def __init__(self, endog, exog=None, rho=1, missing='none'):
         #this looks strange, interpreting rho as order if it is int
         if isinstance(rho, np.int):
@@ -717,9 +718,13 @@ class RegressionResults(base.LikelihoodModelResults):
     **Attributes**
 
     aic
-        Aikake's information criteria :math:`-2llf + 2(df_model+1)`
+        Aikake's information criteria. For a model with a constant
+        :math:`-2llf + 2(df_model + 1)`. For a model without a constant
+        :math:`-2llf + 2(df_model)`.
     bic
-        Bayes' information criteria :math:`-2llf + \log(n)(df_model+1)`
+        Bayes' information criteria For a model with a constant
+        :math:`-2llf + \log(n)(df_model+1)`. For a model without a constant
+        :math:`-2llf + \log(n)(df_model)`
     bse
         The standard errors of the parameter estimates.
     pinv_wexog
@@ -735,16 +740,15 @@ class RegressionResults(base.LikelihoodModelResults):
     cov_HC3
         See HC3_se below.  Only available after calling HC3_se.
     df_model :
-        Model degress of freedom. The number of regressors p - 1 for the
-        constant  Note that df_model does not include the constant even though
-        the design does.  The design is always assumed to have a constant
-        in calculating results for now.
+        Model degress of freedom. The number of regressors `p`. Does not
+        include the constant if one is present
     df_resid
-        Residual degrees of freedom. n - p.  Note that the constant *is*
-        included in calculating the residual degrees of freedom.
+        Residual degrees of freedom. `n - p - 1`, if a constant is present.
+        `n - p` if a constant is not included.
     ess
-        Explained sum of squares.  The centered total sum of squares minus
-        the sum of squared residuals.
+        Explained sum of squares.  If a constant is present, the centered
+        total sum of squares minus the sum of squared residuals. If there is
+        no constant, the uncentered total sum of squares is used.
     fvalue
         F-statistic of the fully specified model.  Calculated as the mean
         squared error of the model divided by the mean squared error of the
@@ -817,10 +821,12 @@ class RegressionResults(base.LikelihoodModelResults):
         The residuals of the model.
     rsquared
         R-squared of a model with an intercept.  This is defined here as
-        1 - `ssr`/`centered_tss`
+        1 - `ssr`/`centered_tss` if the constant is included in the model and
+        1 - `ssr`/`uncentered_tss` if the constant is omitted.
     rsquared_adj
         Adjusted R-squared.  This is defined here as
-        1 - (n-1)/(n-p)*(1-`rsquared`)
+        1 - (`nobs`-1)/`df_resid` * (1-`rsquared`) if a constant is included
+        and 1 - `nobs`/`df_resid` * (1-`rsquared`) if no constant is included.
     scale
         A scale factor for the covariance matrix.
         Default value is ssr/(n-p).  Note that the square root of `scale` is
@@ -936,19 +942,22 @@ class RegressionResults(base.LikelihoodModelResults):
 
     @cache_readonly
     def ess(self):
-        return self.centered_tss - self.ssr
+        if self.k_constant:
+            return self.centered_tss - self.ssr
+        else:
+            return self.uncentered_tss - self.ssr
 
-    # Centered R2 for models with intercepts
-    # have a look in test_regression.test_wls to see
-    # how to compute these stats for a model without intercept,
-    # and when the weights are a (linear?) function of the data...
     @cache_readonly
     def rsquared(self):
-        return 1 - self.ssr/self.centered_tss
+        if self.k_constant:
+            return 1 - self.ssr/self.centered_tss
+        else:
+            return 1 - self.ssr/self.uncentered_tss
 
     @cache_readonly
     def rsquared_adj(self):
-        return 1 - (self.nobs - 1)/self.df_resid * (1 - self.rsquared)
+        return (1 - (self.nobs - self.k_constant)/self.df_resid *
+                (1 - self.rsquared))
 
     @cache_readonly
     def mse_model(self):
@@ -960,7 +969,10 @@ class RegressionResults(base.LikelihoodModelResults):
 
     @cache_readonly
     def mse_total(self):
-        return self.uncentered_tss/self.nobs
+        if self.k_constant:
+            return self.centered_tss / (self.df_resid + self.df_model)
+        else:
+            return self.uncentered_tss/ (self.df_resid + self.df_model)
 
     @cache_readonly
     def fvalue(self):
@@ -980,16 +992,12 @@ class RegressionResults(base.LikelihoodModelResults):
 
     @cache_readonly
     def aic(self):
-        return -2 * self.llf + 2 * (self.df_model + 1)
+        return -2 * self.llf + 2 * (self.df_model + self.k_constant)
 
     @cache_readonly
     def bic(self):
-        return -2 * self.llf + np.log(self.nobs) * (self.df_model + 1)
-
-    # Centered R2 for models with intercepts
-    # have a look in test_regression.test_wls to see
-    # how to compute these stats for a model without intercept,
-    # and when the weights are a (linear?) function of the data...
+        return (-2 * self.llf + np.log(self.nobs) * (self.df_model +
+                                                     self.k_constant))
 
     #TODO: make these properties reset bse
     def _HCCM(self, scale):
@@ -1596,7 +1604,7 @@ class OLSResults(RegressionResults):
         >>> import statsmodels.api as sm
         >>> data = sm.datasets.stackloss.load()
         >>> endog = data.endog
-        >>> exog = sm.add_constant(data.exog, prepend=1)
+        >>> exog = sm.add_constant(data.exog)
         >>> model = sm.OLS(endog, exog)
         >>> fitted = model.fit()
         >>> fitted.params
@@ -1757,7 +1765,7 @@ wrap.populate_wrapper(RegressionResultsWrapper,
 if __name__ == "__main__":
     import statsmodels.api as sm
     data = sm.datasets.longley.load()
-    data.exog = add_constant(data.exog)
+    data.exog = add_constant(data.exog, prepend=False)
     ols_results = OLS(data.endog, data.exog).fit() #results
     gls_results = GLS(data.endog, data.exog).fit() #results
     print(ols_results.summary())

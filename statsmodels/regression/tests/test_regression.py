@@ -5,7 +5,7 @@ import numpy as np
 from numpy.testing import (assert_almost_equal, assert_, assert_approx_equal,
                             assert_raises, assert_equal)
 from scipy.linalg import toeplitz
-from statsmodels.tools.tools import add_constant
+from statsmodels.tools.tools import add_constant, categorical
 from statsmodels.regression.linear_model import (OLS, GLSAR, WLS, GLS,
         yule_walker)
 from statsmodels.datasets import longley
@@ -38,7 +38,7 @@ class CheckRegressionResults(object):
 
     decimal_confidenceintervals = DECIMAL_4
     def test_confidenceintervals(self):
-#NOTE: stata rounds residuals (at least) to sig digits so approx_equal
+    #NOTE: stata rounds residuals (at least) to sig digits so approx_equal
         conf1 = self.res1.conf_int()
         conf2 = self.res2.conf_int()
         for i in range(len(conf1)):
@@ -96,6 +96,11 @@ class CheckRegressionResults(object):
         assert_almost_equal(self.res1.mse_resid, self.res2.mse_resid,
                     self.decimal_mse_model)
 
+    decimal_mse_total = DECIMAL_4
+    def test_mse_total(self):
+        assert_almost_equal(self.res1.mse_total, self.res2.mse_total,
+                    self.decimal_mse_total)
+
     decimal_fvalue = DECIMAL_4
     def test_fvalue(self):
         #didn't change this, not sure it should complain -inf not equal -inf
@@ -137,7 +142,7 @@ class TestOLS(CheckRegressionResults):
     def setupClass(cls):
         from results.results_regression import Longley
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         res1 = OLS(data.endog, data.exog).fit()
         res2 = Longley()
         res2.wresid = res1.wresid # workaround hack
@@ -148,12 +153,10 @@ class TestOLS(CheckRegressionResults):
         cls.res_qr = res_qr
 
 
-#  Robust error tests.  Compare values computed with SAS
+    #  Robust error tests.  Compare values computed with SAS
     def test_HC0_errors(self):
-        '''
-        They are split up because the copied results do not have any DECIMAL_4
-        places for the last place.
-        '''
+        #They are split up because the copied results do not have any DECIMAL_4
+        #places for the last place.
         assert_almost_equal(self.res1.HC0_se[:-1],
                 self.res2.HC0_se[:-1], DECIMAL_4)
         assert_approx_equal(np.round(self.res1.HC0_se[-1]), self.res2.HC0_se[-1])
@@ -185,12 +188,25 @@ class TestOLS(CheckRegressionResults):
 
     def test_missing(self):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         data.endog[[3, 7, 14]] = np.nan
         mod = OLS(data.endog, data.exog, missing='drop')
         assert_equal(mod.endog.shape[0], 13)
         assert_equal(mod.exog.shape[0], 13)
 
+class TestRTO(CheckRegressionResults):
+    @classmethod
+    def setupClass(cls):
+        from results.results_regression import LongleyRTO
+        data = longley.load()
+        res1 = OLS(data.endog, data.exog).fit()
+        res2 = LongleyRTO()
+        res2.wresid = res1.wresid # workaround hack
+        cls.res1 = res1
+        cls.res2 = res2
+
+        res_qr = OLS(data.endog, data.exog).fit(method="qr")
+        cls.res_qr = res_qr
 
 class TestFtest(object):
     """
@@ -199,7 +215,7 @@ class TestFtest(object):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         cls.res1 = OLS(data.endog, data.exog).fit()
         R = np.identity(7)[:-1,:]
         cls.Ftest = cls.res1.f_test(R)
@@ -227,7 +243,7 @@ class TestFTest2(object):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         res1 = OLS(data.endog, data.exog).fit()
         R2 = [[0,1,-1,0,0,0,0],[0, 0, 0, 0, 1, -1, 0]]
         cls.Ftest1 = res1.f_test(R2)
@@ -258,7 +274,7 @@ class TestFtestQ(object):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         res1 = OLS(data.endog, data.exog).fit()
         R = np.array([[0,1,1,0,0,0,0],
               [0,1,0,1,0,0,0],
@@ -289,7 +305,7 @@ class TestTtest(object):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         cls.res1 = OLS(data.endog, data.exog).fit()
         R = np.identity(7)
         cls.Ttest = cls.res1.t_test(R)
@@ -328,7 +344,7 @@ class TestTtest2(object):
         R = np.zeros(7)
         R[4:6] = [1,-1]
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         res1 = OLS(data.endog, data.exog).fit()
         cls.Ttest1 = res1.t_test(R)
 
@@ -358,8 +374,8 @@ class TestGLS(object):
         from results.results_regression import LongleyGls
 
         data = longley.load()
-        exog = add_constant(np.column_stack(\
-                (data.exog[:,1],data.exog[:,4])))
+        exog = add_constant(np.column_stack((data.exog[:,1],
+                                             data.exog[:,4])), prepend=False)
         tmp_results = OLS(data.endog, exog).fit()
         rho = np.corrcoef(tmp_results.resid[1:],
                 tmp_results.resid[:-1])[0][1] # by assumption
@@ -419,7 +435,7 @@ class TestGLS_nosigma(CheckRegressionResults):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         ols_res = OLS(data.endog, data.exog).fit()
         gls_res = GLS(data.endog, data.exog).fit()
         cls.res1 = gls_res
@@ -463,13 +479,13 @@ def test_wls_tss():
     y = np.array([22, 22, 22, 23, 23, 23])
     X = [[1, 0], [1, 0], [1, 1], [0, 1], [0, 1], [0, 1]]
 
-    ols_mod = OLS(y, add_constant(X)).fit()
+    ols_mod = OLS(y, add_constant(X, prepend=False)).fit()
 
     yw = np.array([22, 22, 23.])
     Xw = [[1,0],[1,1],[0,1]]
     w = np.array([2, 1, 3.])
 
-    wls_mod = WLS(yw, add_constant(Xw), weights=w).fit()
+    wls_mod = WLS(yw, add_constant(Xw, prepend=False), weights=w).fit()
     assert_equal(ols_mod.centered_tss, wls_mod.centered_tss)
 
 class TestWLSScalarVsArray(CheckRegressionResults):
@@ -511,7 +527,7 @@ class TestWLS_OLS(CheckRegressionResults):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         cls.res1 = OLS(data.endog, data.exog).fit()
         cls.res2 = WLS(data.endog, data.exog).fit()
 
@@ -522,7 +538,7 @@ class TestGLS_OLS(CheckRegressionResults):
     @classmethod
     def setupClass(cls):
         data = longley.load()
-        data.exog = add_constant(data.exog)
+        data.exog = add_constant(data.exog, prepend=False)
         cls.res1 = GLS(data.endog, data.exog).fit()
         cls.res2 = OLS(data.endog, data.exog).fit()
 
@@ -609,6 +625,16 @@ def test_bad_size():
     np.random.seed(54321)
     data = np.random.uniform(0,20,31)
     assert_raises(ValueError, OLS, data, data[1:])
+
+def test_const_indicator():
+    np.random.seed(12345)
+    X = np.random.randint(0, 3, size=30)
+    X = categorical(X, drop=True)
+    y = np.dot(X, [1., 2., 3.]) + np.random.normal(size=30)
+    modc = OLS(y, add_constant(X[:,1:], prepend=True)).fit()
+    mod = OLS(y, X, hasconst=True).fit()
+    assert_almost_equal(modc.rsquared, mod.rsquared, 12)
+
 
 if __name__=="__main__":
 
