@@ -7,9 +7,13 @@ DECIMAL_3 is used because it seems that there is a loss of precision
 in the Stata *.dta -> *.csv output, NOT the estimator for the Poisson
 tests.
 """
+# pylint: disable-msg=E1101
+
 import os
 import numpy as np
-from numpy.testing import *
+from numpy.testing import (assert_, assert_raises, assert_almost_equal,
+                           assert_equal, assert_array_equal)
+
 from statsmodels.discrete.discrete_model import (Logit, Probit, MNLogit,
                                                  Poisson)
 from statsmodels.discrete.discrete_margins import _iscount, _isdummy
@@ -39,6 +43,7 @@ class CheckModelResults(object):
     res2 should be the test results from RModelWrap
     or the results as defined in model_results_data
     """
+
     def test_params(self):
         assert_almost_equal(self.res1.params, self.res2.params, DECIMAL_4)
 
@@ -347,7 +352,7 @@ class TestProbitCG(CheckBinaryResults):
         res2.probit()
         cls.res2 = res2
         cls.res1 = Probit(data.endog, data.exog).fit(method="cg",
-            disp=0, maxiter=500, gtol=1e-06)
+            disp=0, maxiter=500, gtol=1e-08)
 
 class TestProbitNCG(CheckBinaryResults):
     @classmethod
@@ -543,12 +548,12 @@ class TestPoissonL1Compatability(CheckL1Compatability):
         # Drop some columns and do an unregularized fit
         exog_no_PSI = rand_exog[:, :cls.m]
         cls.res_unreg = sm.Poisson(
-            rand_data.endog, exog_no_PSI).fit(method="newton")
+            rand_data.endog, exog_no_PSI).fit(method="newton", disp=False)
         # Do a regularized fit with alpha, effectively dropping the last column
         alpha = 10 * len(rand_data.endog) * np.ones(cls.kvars)
         alpha[:cls.m] = 0
         cls.res_reg = sm.Poisson(rand_data.endog, rand_exog).fit_regularized(
-            method='l1', alpha=alpha, disp=1, acc=1e-10, maxiter=2000,
+            method='l1', alpha=alpha, disp=False, acc=1e-10, maxiter=2000,
             trim_mode='auto')
 
 
@@ -895,7 +900,7 @@ def test_perfect_prediction():
     assert_raises(PerfectSeparationError, mod.fit)
     #turn off raise PerfectSeparationError
     mod.raise_on_perfect_prediction = False
-    mod.fit()  #should not raise
+    mod.fit(disp=False)  #should not raise
 
 def test_poisson_predict():
     #GH: 175, make sure poisson predict works without offset and exposure
