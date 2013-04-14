@@ -66,7 +66,8 @@ class AR(tsbase.TimeSeriesModel):
     __doc__ = tsbase._tsa_doc % {"model" : "Autoregressive AR(p) model",
             "params" : """endog : array-like
         1-d endogenous response variable. The independent variable.""",
-        "extra_params" : base._missing_param_doc}
+        "extra_params" : base._missing_param_doc,
+        "extra_sections" : ""}
     def __init__(self, endog, dates=None, freq=None, missing='none'):
         super(AR, self).__init__(endog, None, dates, freq, missing=missing)
         endog = self.endog # original might not have been an ndarray
@@ -567,9 +568,14 @@ class AR(tsbase.TimeSeriesModel):
             self.sigma2 = arfit.ssr/arfit.nobs #needed for predict fcasterr
         if method == "mle":
             self.nobs = nobs
-            if not start_params:
+            if start_params is None:
                 start_params = OLS(Y,X).fit().params
-                start_params = self._invtransparams(start_params)
+            else:
+                if len(start_params) != k_trend + k_ar:
+                    raise ValueError("Length of start params is %d. There"
+                            " are %d parameters." % (len(start_params),
+                                                     k_trend + k_ar))
+            start_params = self._invtransparams(start_params)
             loglike = lambda params : -self.loglike(params)
             if solver == None:  # use limited memory bfgs
                 bounds = [(None,)*2]*(k_ar+k)
@@ -624,10 +630,10 @@ class ARResults(tsbase.TimeSeriesModelResults):
 
     aic : float
         Akaike Information Criterion using Lutkephol's definition.
-        :math:`log(sigma) + 2*(1+k_ar)/nobs`
+        :math:`log(sigma) + 2*(1 + k_ar + k_trend)/nobs`
     bic : float
         Bayes Information Criterion
-        :math:`\\log(\\sigma) + (1+k_ar)*\\log(nobs)/nobs`
+        :math:`\\log(\\sigma) + (1 + k_ar + k_trend)*\\log(nobs)/nobs`
     bse : array
         The standard errors of the estimated parameters. If `method` is 'cmle',
         then the standard errors that are returned are the OLS standard errors
@@ -697,7 +703,8 @@ class ARResults(tsbase.TimeSeriesModelResults):
             trendorder = k_trend - 1
         self.trendorder = 1
         #TODO: cmle vs mle?
-        self.df_resid = self.model.df_resid = n_totobs - k_ar - k_trend
+        self.df_model = k_ar + k_trend
+        self.df_resid = self.model.df_resid = n_totobs - self.df_model
 
     @cache_writable()
     def sigma2(self):
@@ -732,7 +739,7 @@ class ARResults(tsbase.TimeSeriesModelResults):
         # Lutkepohl
         #return np.log(self.sigma2) + 1./self.model.nobs * self.k_ar
         # Include constant as estimated free parameter and double the loss
-        return np.log(self.sigma2) + 2 * (1 + self.k_ar)/self.nobs
+        return np.log(self.sigma2) + 2 * (1 + self.df_model)/self.nobs
         # Stata defintion
         #nobs = self.nobs
         #return -2 * self.llf/nobs + 2 * (self.k_ar+self.k_trend)/nobs
@@ -744,7 +751,7 @@ class ARResults(tsbase.TimeSeriesModelResults):
         # return np.log(self.sigma2)+ 2 * np.log(np.log(nobs))/nobs * self.k_ar
         # R uses all estimated parameters rather than just lags
         return np.log(self.sigma2) + 2 * np.log(np.log(nobs))/nobs * \
-                (1 + self.k_ar)
+                (1 + self.df_model)
         # Stata
         #nobs = self.nobs
         #return -2 * self.llf/nobs + 2 * np.log(np.log(nobs))/nobs * \
@@ -753,10 +760,9 @@ class ARResults(tsbase.TimeSeriesModelResults):
     @cache_readonly
     def fpe(self):
         nobs = self.nobs
-        k_ar = self.k_ar
-        k_trend = self.k_trend
+        df_model = self.df_model
         #Lutkepohl
-        return ((nobs+k_ar+k_trend)/(nobs-k_ar-k_trend))*self.sigma2
+        return ((nobs+df_model)/(nobs-df_model))*self.sigma2
 
     @cache_readonly
     def bic(self):
@@ -764,7 +770,7 @@ class ARResults(tsbase.TimeSeriesModelResults):
         # Lutkepohl
         #return np.log(self.sigma2) + np.log(nobs)/nobs * self.k_ar
         # Include constant as est. free parameter
-        return np.log(self.sigma2) + (1 + self.k_ar) * np.log(nobs)/nobs
+        return np.log(self.sigma2) + (1 + self.df_model) * np.log(nobs)/nobs
         # Stata
         # return -2 * self.llf/nobs + np.log(nobs)/nobs * (self.k_ar + \
         #       self.k_trend)
