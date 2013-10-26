@@ -29,8 +29,8 @@ from statsmodels.compat.numpy import np_matrix_rank
 __all__ = ['RLM']
 
 def _check_convergence(criterion, iteration, tol, maxiter):
-    return not (np.any(np.fabs(criterion[iteration] -
-                criterion[iteration-1]) > tol) and iteration < maxiter)
+    return not ((np.sqrt(np.sum(np.power(criterion[iteration] -
+                criterion[iteration-1], 2.0))/max(1e-20,np.sum(criterion[iteration-1]**2))) > tol) and iteration < maxiter)
 
 class RLM(base.LikelihoodModel):
     __doc__ = """
@@ -180,6 +180,8 @@ class RLM(base.LikelihoodModel):
             history['deviance'].append(self.deviance(tmp_results))
         elif conv == 'sresid':
             history['sresid'].append(tmp_results.resid/tmp_results.scale)
+        elif conv == 'resid':
+            history['resid'].append(tmp_results.resid)
         elif conv == 'weights':
             history['weights'].append(tmp_results.model.weights)
         return history
@@ -190,7 +192,7 @@ class RLM(base.LikelihoodModel):
         """
         if isinstance(self.scale_est, str):
             if self.scale_est.lower() == 'mad':
-                return scale.mad(resid, center=0)
+                return scale.mad(resid, c=0.6745, center=0)
             if self.scale_est.lower() == 'stand_mad':
                 return scale.mad(resid)
             else:
@@ -201,8 +203,8 @@ class RLM(base.LikelihoodModel):
         else:
             return scale.scale_est(self, resid)**2
 
-    def fit(self, maxiter=50, tol=1e-8, scale_est='mad', init=None, cov='H1',
-            update_scale=True, conv='dev'):
+    def fit(self, maxiter=50, tol=1e-4, scale_est='mad', init=None, cov='H1',
+            update_scale=True, conv='resid'):
         """
         Fits the model using iteratively reweighted least squares.
 
@@ -215,6 +217,7 @@ class RLM(base.LikelihoodModel):
             Indicates the convergence criteria.
             Available options are "coefs" (the coefficients), "weights" (the
             weights in the iteration), "sresid" (the standardized residuals),
+            "resid" (the residuals),
             and "dev" (the un-normalized log-likelihood for the M
             estimator).  The default is "dev".
         cov : string, optional
@@ -252,7 +255,7 @@ class RLM(base.LikelihoodModel):
         else:
             self.cov = cov.upper()
         conv = conv.lower()
-        if not conv in ["weights","coefs","dev","sresid"]:
+        if not conv in ["weights","coefs","dev","sresid","resid"]:
             raise ValueError("Convergence argument %s not understood" \
                 % conv)
         self.scale_est = scale_est
@@ -262,7 +265,7 @@ class RLM(base.LikelihoodModel):
             warn("stand_mad is deprecated and will be removed in 0.7.0",
                  FutureWarning)
 
-        wls_results = lm.WLS(self.endog, self.exog).fit()
+        wls_results = lm.WLS(self.endog, self.exog).fit(method='qr')
         if not init:
             self.scale = self._estimate_scale(wls_results.resid)
 
@@ -275,10 +278,13 @@ class RLM(base.LikelihoodModel):
         elif conv == 'sresid':
             history.update(dict(sresid = [np.inf]))
             criterion = history['sresid']
+        elif conv == 'resid':
+            history.update(dict(resid = [np.inf]))
+            criterion = history['resid']
         elif conv == 'weights':
             history.update(dict(weights = [np.inf]))
             criterion = history['weights']
-
+        
         # done one iteration so update
         history = self._update_history(wls_results, history, conv)
         iteration = 1
@@ -286,7 +292,7 @@ class RLM(base.LikelihoodModel):
         while not converged:
             self.weights = self.M.weights(wls_results.resid/self.scale)
             wls_results = lm.WLS(self.endog, self.exog,
-                                 weights=self.weights).fit()
+                                 weights=self.weights).fit(method='qr')
             if update_scale is True:
                 self.scale = self._estimate_scale(wls_results.resid)
             history = self._update_history(wls_results, history, conv)
