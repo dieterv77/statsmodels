@@ -157,7 +157,7 @@ MAJ = 0
 MIN = 5
 REV = 0
 ISRELEASED = True
-VERSION = '%d.%d.%d-rlm' % (MAJ,MIN,REV)
+VERSION = '%d.%d.%d-rlm01' % (MAJ,MIN,REV)
 
 classifiers = [ 'Development Status :: 4 - Beta',
               'Environment :: Console',
