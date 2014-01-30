@@ -202,7 +202,7 @@ class RLM(base.LikelihoodModel):
             return scale.scale_est(self, resid)**2
 
     def fit(self, maxiter=50, tol=1e-4, scale_est='mad', init=None, cov='H1',
-            update_scale=True, conv='resid'):
+            update_scale=True, conv='resid', method='qr'):
         """
         Fits the model using iteratively reweighted least squares.
 
@@ -242,6 +242,11 @@ class RLM(base.LikelihoodModel):
             If `update_scale` is False then the scale estimate for the
             weights is held constant over the iteration.  Otherwise, it
             is updated for each fit in the iteration.  Default is True.
+        method: string
+            method argumnet to pass to WLS method
+            Can be "pinv", "qr".  "pinv" uses the Moore-Penrose pseudoinverse
+            to solve the least squares problem. "qr" uses the QR
+            factorization.
 
         Returns
         -------
@@ -258,7 +263,7 @@ class RLM(base.LikelihoodModel):
                 % conv)
         self.scale_est = scale_est
 
-        wls_results = lm.WLS(self.endog, self.exog).fit(method='qr')
+        wls_results = lm.WLS(self.endog, self.exog).fit(method=method)
         if not init:
             self.scale = self._estimate_scale(wls_results.resid)
 
@@ -285,7 +290,7 @@ class RLM(base.LikelihoodModel):
         while not converged:
             self.weights = self.M.weights(wls_results.resid/self.scale)
             wls_results = lm.WLS(self.endog, self.exog,
-                                 weights=self.weights).fit(method='qr')
+                                 weights=self.weights).fit(method=method)
             if update_scale is True:
                 self.scale = self._estimate_scale(wls_results.resid)
             history = self._update_history(wls_results, history, conv)
