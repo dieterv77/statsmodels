@@ -159,8 +159,8 @@ def check_dependency_versions(min_versions):
 MAJ = 0
 MIN = 8
 REV = 0
-ISRELEASED = True
-VERSION = '%d.%d.%d' % (MAJ,MIN,REV)
+ISRELEASED = False
+VERSION = '%d.%d.%d-rlm' % (MAJ,MIN,REV)
 
 classifiers = ['Development Status :: 4 - Beta',
                'Environment :: Console',
