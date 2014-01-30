@@ -194,7 +194,7 @@ class RLM(base.LikelihoodModel):
             return scale.scale_est(self, resid) ** 2
 
     def fit(self, maxiter=50, tol=1e-4, scale_est='mad', init=None, cov='H1',
-            update_scale=True, conv='resid', start_params=None):
+            update_scale=True, conv='resid', method='qr', start_params=None):
         """
         Fits the model using iteratively reweighted least squares.
 
@@ -234,6 +234,11 @@ class RLM(base.LikelihoodModel):
             If `update_scale` is False then the scale estimate for the
             weights is held constant over the iteration.  Otherwise, it
             is updated for each fit in the iteration.  Default is True.
+        method: string
+            method argumnet to pass to WLS method
+            Can be "pinv", "qr".  "pinv" uses the Moore-Penrose pseudoinverse
+            to solve the least squares problem. "qr" uses the QR
+            factorization.
         start_params : array-like, optional
             Initial guess of the solution of the optimizer. If not provided,
             the initial parameters are computed using OLS.
@@ -253,7 +258,7 @@ class RLM(base.LikelihoodModel):
         self.scale_est = scale_est
 
         if start_params is None:
-            wls_results = lm.WLS(self.endog, self.exog).fit(method='qr')
+            wls_results = lm.WLS(self.endog, self.exog).fit(method=method)
         else:
             start_params = np.asarray(start_params, dtype=np.double).squeeze()
             if (start_params.shape[0] != self.exog.shape[1] or
@@ -298,7 +303,7 @@ class RLM(base.LikelihoodModel):
             self.weights = self.M.weights(wls_results.resid / self.scale)
             wls_results = reg_tools._MinimalWLS(self.endog, self.exog,
                                                 weights=self.weights,
-                                                check_weights=True).fit(method='qr')
+                                                check_weights=True).fit(method=method)
             if update_scale is True:
                 self.scale = self._estimate_scale(wls_results.resid)
             history = self._update_history(wls_results, history, conv)
